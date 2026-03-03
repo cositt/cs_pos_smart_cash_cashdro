@@ -1,0 +1,88 @@
+<?xml version="1.0" encoding="utf-8"?>
+<odoo>
+    <!-- Vista formulario para configuración -->
+    <record id="view_res_config_settings_form" model="ir.ui.view">
+        <field name="name">res.config.settings.form.cashdro</field>
+        <field name="model">res.config.settings</field>
+        <field name="inherit_id">base.res_config_settings_form</field>
+        <field name="arch" type="xml">
+            <xpath expr="//app[@data-key='general_settings']" position="after">
+                <app string="Cashdrop" data-key="cashdro_settings" icon="fa-credit-card">
+                    <block title="Configuración General" id="cashdro_general">
+                        <setting help="Habilitar integración con máquinas Cashdrop">
+                            <field name="cashdro_enabled"/>
+                            <label for="cashdro_enabled">Habilitar Cashdrop</label>
+                        </setting>
+                        <setting help="URL por defecto del gateway Cashdrop" attrs="{'invisible': [('cashdro_enabled', '=', False)]}">
+                            <field name="cashdro_default_gateway_url" placeholder="https://10.0.1.140"/>
+                            <label for="cashdro_default_gateway_url">URL Gateway por Defecto</label>
+                        </setting>
+                    </block>
+
+                    <block title="Comunicación" id="cashdro_communication">
+                        <setting help="Tiempo máximo de espera para conexión a Cashdrop" attrs="{'invisible': [('cashdro_enabled', '=', False)]}">
+                            <field name="cashdro_connection_timeout"/>
+                            <label for="cashdro_connection_timeout">Timeout de Conexión (segundos)</label>
+                        </setting>
+                        <setting help="Tiempo máximo de espera en polling de operaciones" attrs="{'invisible': [('cashdro_enabled', '=', False)]}">
+                            <field name="cashdro_polling_timeout"/>
+                            <label for="cashdro_polling_timeout">Timeout de Polling (segundos)</label>
+                        </setting>
+                        <setting help="Intervalo entre intentos de polling" attrs="{'invisible': [('cashdro_enabled', '=', False)]}">
+                            <field name="cashdro_polling_interval"/>
+                            <label for="cashdro_polling_interval">Intervalo de Polling (milisegundos)</label>
+                        </setting>
+                        <setting help="Verificar certificado SSL en conexiones HTTPS" attrs="{'invisible': [('cashdro_enabled', '=', False)]}">
+                            <field name="cashdro_verify_ssl"/>
+                            <label for="cashdro_verify_ssl">Verificar Certificado SSL</label>
+                        </setting>
+                    </block>
+
+                    <block title="Reintentos" id="cashdro_retries">
+                        <setting help="Número máximo de reintentos en caso de error" attrs="{'invisible': [('cashdro_enabled', '=', False)]}">
+                            <field name="cashdro_max_retries"/>
+                            <label for="cashdro_max_retries">Máximo de Reintentos</label>
+                        </setting>
+                        <setting help="Tiempo de espera entre reintentos" attrs="{'invisible': [('cashdro_enabled', '=', False)]}">
+                            <field name="cashdro_retry_delay"/>
+                            <label for="cashdro_retry_delay">Delay entre Reintentos (segundos)</label>
+                        </setting>
+                    </block>
+
+                    <block title="Operaciones" id="cashdro_operations">
+                        <setting help="Confirmar transacciones automáticamente cuando se complete el pago" attrs="{'invisible': [('cashdro_enabled', '=', False)]}">
+                            <field name="cashdro_auto_confirm_payments"/>
+                            <label for="cashdro_auto_confirm_payments">Confirmar Pagos Automáticamente</label>
+                        </setting>
+                    </block>
+
+                    <block title="Logging y Depuración" id="cashdro_logging">
+                        <setting help="Nivel de detalle de logs para Cashdrop" attrs="{'invisible': [('cashdro_enabled', '=', False)]}">
+                            <field name="cashdro_log_level"/>
+                            <label for="cashdro_log_level">Nivel de Log</label>
+                        </setting>
+                        <setting help="Activar modo de prueba con logs detallados" attrs="{'invisible': [('cashdro_enabled', '=', False)]}">
+                            <field name="cashdro_enable_test_mode"/>
+                            <label for="cashdro_enable_test_mode">Modo de Prueba</label>
+                        </setting>
+                        <setting help="Guardar logs completos de respuestas de Cashdrop" attrs="{'invisible': [('cashdro_enabled', '=', False)]}">
+                            <field name="cashdro_keep_transaction_logs"/>
+                            <label for="cashdro_keep_transaction_logs">Guardar Logs de Transacciones</label>
+                        </setting>
+                        <setting help="Días para mantener registros de transacciones (0 = indefinido)" attrs="{'invisible': [('cashdro_enabled', '=', False)]}">
+                            <field name="cashdro_transaction_retention_days"/>
+                            <label for="cashdro_transaction_retention_days">Retención de Transacciones (días)</label>
+                        </setting>
+                    </block>
+
+                    <block title="Pruebas de Conexión" id="cashdro_testing">
+                        <div attrs="{'invisible': [('cashdro_enabled', '=', False)]}">
+                            <p>Prueba la conexión con la máquina Cashdrop usando la URL configurada.</p>
+                            <button name="action_test_connection" type="object" string="Probar Conexión" class="btn btn-primary"/>
+                        </div>
+                    </block>
+                </app>
+            </xpath>
+        </field>
+    </record>
+</odoo>

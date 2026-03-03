@@ -1,0 +1,14 @@
+<?xml version="1.0" encoding="utf-8"?>
+<odoo>
+    <!-- Menú principal para Cashdrop -->
+    <menuitem id="menu_cashdro_root" name="Cashdrop" icon="fa-credit-card" web_icon="cs_pos_smart_cash_cashdro,static/description/icon.png" groups="point_of_sale.group_pos_manager"/>
+
+    <!-- Menú para transacciones -->
+    <menuitem id="menu_cashdro_transactions" name="Transacciones" parent="menu_cashdro_root" action="action_cashdro_transaction" groups="point_of_sale.group_pos_manager"/>
+
+    <!-- Menú para métodos de pago -->
+    <menuitem id="menu_cashdro_payment_methods" name="Métodos de Pago" parent="menu_cashdro_root" action="action_pos_payment_method_cashdro" groups="point_of_sale.group_pos_manager"/>
+
+    <!-- Menú para configuración -->
+    <menuitem id="menu_cashdro_settings" name="Configuración" parent="menu_cashdro_root" action="base.action_res_config_settings" groups="base.group_system"/>
+</odoo>
