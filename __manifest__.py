@@ -26,6 +26,8 @@
         "security/ir.model.access.csv",
         # Sequences
         "data/ir_sequence.xml",
+        # Wizard (compatibilidad)
+        "wizard/cashdro_config_wizard_views.xml",
         # Views
         "views/pos_payment_method_views.xml",
         "views/cashdro_transaction_views.xml",
