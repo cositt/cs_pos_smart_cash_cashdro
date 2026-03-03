@@ -1,0 +1,234 @@
+# -*- coding: utf-8 -*-
+# Copyright 2026 Juan Cositt
+# License LGPL-3.0 or later (https://www.gnu.org/licenses/lgpl)
+
+from odoo import fields, models, api, _
+from odoo.exceptions import ValidationError
+import requests
+import logging
+
+_logger = logging.getLogger(__name__)
+
+
+class PosPaymentMethod(models.Model):
+    """Extensión de pos.payment.method para soportar Cashdrop"""
+    
+    _inherit = 'pos.payment.method'
+    
+    # ========================
+    # CAMPOS DE CONFIGURACIÓN
+    # ========================
+    
+    cashdro_enabled = fields.Boolean(
+        string='Habilitar Cashdrop',
+        default=False,
+        help='Activar este método de pago como terminal Cashdrop'
+    )
+    
+    cashdro_host = fields.Char(
+        string='Host/IP de Cashdrop',
+        help='IP o hostname de la máquina Cashdrop (ej: 10.0.1.140)',
+        states={'enabled': [('readonly', False)]},
+        required_if_cashdrop=True
+    )
+    
+    cashdro_user = fields.Char(
+        string='Usuario Cashdrop',
+        help='Usuario para autenticación en Cashdrop (ej: admin)',
+        states={'enabled': [('readonly', False)]},
+        required_if_cashdrop=True
+    )
+    
+    cashdro_password = fields.Char(
+        string='Contraseña Cashdrop',
+        help='Contraseña para autenticación en Cashdrop',
+        states={'enabled': [('readonly', False)]},
+        required_if_cashdrop=True
+    )
+    
+    cashdro_gateway_url = fields.Char(
+        string='URL del Gateway',
+        default='http://localhost:5000',
+        help='URL del gateway Flask (ej: http://localhost:5000)',
+        required_if_cashdrop=True
+    )
+    
+    cashdro_connection_status = fields.Selection(
+        selection=[
+            ('not_tested', 'No probado'),
+            ('connected', 'Conectado'),
+            ('disconnected', 'Desconectado'),
+            ('error', 'Error')
+        ],
+        default='not_tested',
+        readonly=True,
+        help='Estado de la conexión con Cashdrop'
+    )
+    
+    cashdro_last_check = fields.Datetime(
+        string='Último chequeo',
+        readonly=True,
+        help='Timestamp del último test de conexión'
+    )
+    
+    cashdro_error_message = fields.Text(
+        string='Mensaje de error',
+        readonly=True,
+        help='Detalle del último error de conexión'
+    )
+    
+    # ========================
+    # VALIDACIONES
+    # ========================
+    
+    @api.constrains('cashdro_enabled', 'cashdro_host', 'cashdro_user', 'cashdro_password')
+    def _check_cashdro_config(self):
+        """Validar configuración de Cashdrop si está habilitado"""
+        for record in self:
+            if record.cashdro_enabled:
+                if not record.cashdro_host:
+                    raise ValidationError(
+                        _('El Host/IP de Cashdrop es requerido cuando Cashdrop está habilitado')
+                    )
+                if not record.cashdro_user:
+                    raise ValidationError(
+                        _('El Usuario de Cashdrop es requerido cuando Cashdrop está habilitado')
+                    )
+                if not record.cashdro_password:
+                    raise ValidationError(
+                        _('La Contraseña de Cashdrop es requerida cuando Cashdrop está habilitado')
+                    )
+    
+    # ========================
+    # MÉTODOS DE INTEGRACIÓN
+    # ========================
+    
+    def validate_connection(self):
+        """
+        Valida la conexión con Cashdrop
+        Prueba conectividad con la máquina real
+        """
+        self.ensure_one()
+        
+        if not self.cashdro_enabled:
+            raise ValidationError(_('Cashdrop no está habilitado para este método de pago'))
+        
+        try:
+            _logger.info(f"Validando conexión con Cashdrop en {self.cashdro_host}")
+            
+            # Construir URL de prueba
+            url = f"https://{self.cashdro_host}/Cashdro3WS/index.php"
+            params = {
+                'name': self.cashdro_user,
+                'password': self.cashdro_password,
+                'operation': 'login'
+            }
+            
+            # Realizar petición
+            response = requests.get(
+                url,
+                params=params,
+                timeout=5,
+                verify=False
+            )
+            
+            if response.status_code == 200:
+                data = response.json()
+                
+                # Verificar respuesta
+                if data.get('code') == 1:
+                    self.cashdro_connection_status = 'connected'
+                    self.cashdro_error_message = False
+                    _logger.info("✅ Conexión con Cashdrop exitosa")
+                    return True
+                else:
+                    self.cashdro_connection_status = 'error'
+                    self.cashdro_error_message = f"Respuesta inválida: code={data.get('code')}"
+                    _logger.warning(self.cashdro_error_message)
+                    raise ValidationError(
+                        _('Respuesta inválida de Cashdrop: %s') % self.cashdro_error_message
+                    )
+            else:
+                self.cashdro_connection_status = 'error'
+                self.cashdro_error_message = f"HTTP {response.status_code}"
+                raise ValidationError(
+                    _('Error HTTP %s al conectar con Cashdrop') % response.status_code
+                )
+        
+        except requests.Timeout:
+            self.cashdro_connection_status = 'error'
+            self.cashdro_error_message = "Timeout - Cashdrop no responde"
+            _logger.error(self.cashdro_error_message)
+            raise ValidationError(_('Timeout: Cashdrop no responde. Verifica IP y conectividad'))
+        
+        except requests.ConnectionError as e:
+            self.cashdro_connection_status = 'disconnected'
+            self.cashdro_error_message = f"Conexión rechazada: {str(e)}"
+            _logger.error(self.cashdro_error_message)
+            raise ValidationError(
+                _('No se puede conectar a Cashdrop en %s. Verifica que el host sea correcto') % self.cashdro_host
+            )
+        
+        except Exception as e:
+            self.cashdro_connection_status = 'error'
+            self.cashdro_error_message = str(e)
+            _logger.error(f"Error validando conexión: {e}")
+            raise ValidationError(_('Error al validar conexión: %s') % str(e))
+    
+    def get_gateway_url(self):
+        """Retorna la URL del gateway"""
+        self.ensure_one()
+        return self.cashdro_gateway_url or 'http://localhost:5000'
+    
+    def is_cashdrop_enabled(self):
+        """Verifica si Cashdrop está habilitado"""
+        return self.cashdro_enabled and self.cashdro_connection_status == 'connected'
+    
+    # ========================
+    # ACCIONES
+    # ========================
+    
+    def action_test_connection(self):
+        """Acción para probar conexión desde UI"""
+        self.validate_connection()
+        
+        return {
+            'type': 'ir.actions.client',
+            'tag': 'display_notification',
+            'params': {
+                'title': _('Éxito'),
+                'message': _('Conexión con Cashdrop validada correctamente'),
+                'type': 'success',
+                'sticky': False,
+            }
+        }
+    
+    def action_get_payment_info(self):
+        """Obtiene información de disponibilidad de piezas de Cashdrop"""
+        self.ensure_one()
+        
+        if not self.is_cashdrop_enabled():
+            raise ValidationError(_('Cashdrop no está disponible o no conectado'))
+        
+        try:
+            url = f"https://{self.cashdro_host}/Cashdro3WS/index.php"
+            params = {
+                'name': self.cashdro_user,
+                'password': self.cashdro_password,
+                'operation': 'getPiecesCurrency',
+                'currencyId': 'EUR',
+                'includeImages': '0',
+                'includeLevels': '1'
+            }
+            
+            response = requests.get(url, params=params, timeout=5, verify=False)
+            response.raise_for_status()
+            
+            data = response.json()
+            _logger.info(f"Información de piezas obtenida: {len(data.get('data', []))} piezas")
+            
+            return data
+        
+        except Exception as e:
+            _logger.error(f"Error obteniendo información de piezas: {e}")
+            raise ValidationError(_('Error obteniendo información: %s') % str(e))
