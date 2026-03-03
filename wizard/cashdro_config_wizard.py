@@ -20,8 +20,9 @@ class CashdroConfigWizard(models.TransientModel):
     _name = 'cashdro.config.wizard'
     _description = 'Cashdrop Config Wizard'
 
-    cashdro_enabled = fields.Boolean(string='Habilitar Cashdrop')
-    cashdro_default_gateway_url = fields.Char(string='URL Gateway por Defecto')
+    # Campos de configuración
+    cashdro_enabled = fields.Boolean(string='Habilitar Cashdrop', default=False)
+    cashdro_default_gateway_url = fields.Char(string='URL Gateway por Defecto', default='')
     cashdro_connection_timeout = fields.Integer(string='Timeout Conexión (s)', default=10)
     cashdro_polling_timeout = fields.Integer(string='Timeout Polling (s)', default=60)
     cashdro_polling_interval = fields.Integer(string='Intervalo Polling (ms)', default=500)
@@ -43,42 +44,49 @@ class CashdroConfigWizard(models.TransientModel):
 
     @api.model
     def default_get(self, fields_list):
+        """Cargar valores por defecto desde ir.config_parameter."""
         res = super().default_get(fields_list)
         icp = self.env['ir.config_parameter'].sudo()
         
-        def _get_bool(key, default=False):
+        # Helper para obtener valores de config
+        def _get_param(key, default=''):
+            v = icp.get_param(key)
+            return v if v is not None else default
+        
+        def _get_param_bool(key, default=False):
             v = icp.get_param(key)
             if v is None:
                 return default
             return str(v).lower() in ('1', 'true', 'yes', 'y', 'on')
-
-        def _get_int(key, default=0):
+        
+        def _get_param_int(key, default=0):
             v = icp.get_param(key)
             try:
                 return int(v) if v is not None else default
-            except Exception:
+            except (ValueError, TypeError):
                 return default
 
-        def _get_str(key, default=''):
-            v = icp.get_param(key)
-            return v if v is not None else default
-
-        mapping = {
-            'cashdro_enabled': ('cs_pos_smart_cash_cashdro.cashdro_enabled', _get_bool, False),
-            'cashdro_default_gateway_url': ('cs_pos_smart_cash_cashdro.cashdro_default_gateway_url', _get_str, ''),
-            'cashdro_connection_timeout': ('cs_pos_smart_cash_cashdro.cashdro_connection_timeout', _get_int, 10),
-            'cashdro_polling_timeout': ('cs_pos_smart_cash_cashdro.cashdro_polling_timeout', _get_int, 60),
-            'cashdro_polling_interval': ('cs_pos_smart_cash_cashdro.cashdro_polling_interval', _get_int, 500),
-            'cashdro_verify_ssl': ('cs_pos_smart_cash_cashdro.cashdro_verify_ssl', _get_bool, False),
-            'cashdro_max_retries': ('cs_pos_smart_cash_cashdro.cashdro_max_retries', _get_int, 3),
-            'cashdro_retry_delay': ('cs_pos_smart_cash_cashdro.cashdro_retry_delay', _get_int, 2),
-            'cashdro_auto_confirm_payments': ('cs_pos_smart_cash_cashdro.cashdro_auto_confirm_payments', _get_bool, True),
-            'cashdro_log_level': ('cs_pos_smart_cash_cashdro.cashdro_log_level', _get_str, 'INFO'),
-        }
-
-        for field_name, (param, getter, default) in mapping.items():
-            if field_name in fields_list:
-                res[field_name] = getter(param, default)
+        # Cargar desde config_parameter
+        if 'cashdro_enabled' in fields_list:
+            res['cashdro_enabled'] = _get_param_bool('cs_pos_smart_cash_cashdro.cashdro_enabled', False)
+        if 'cashdro_default_gateway_url' in fields_list:
+            res['cashdro_default_gateway_url'] = _get_param('cs_pos_smart_cash_cashdro.cashdro_default_gateway_url', '')
+        if 'cashdro_connection_timeout' in fields_list:
+            res['cashdro_connection_timeout'] = _get_param_int('cs_pos_smart_cash_cashdro.cashdro_connection_timeout', 10)
+        if 'cashdro_polling_timeout' in fields_list:
+            res['cashdro_polling_timeout'] = _get_param_int('cs_pos_smart_cash_cashdro.cashdro_polling_timeout', 60)
+        if 'cashdro_polling_interval' in fields_list:
+            res['cashdro_polling_interval'] = _get_param_int('cs_pos_smart_cash_cashdro.cashdro_polling_interval', 500)
+        if 'cashdro_verify_ssl' in fields_list:
+            res['cashdro_verify_ssl'] = _get_param_bool('cs_pos_smart_cash_cashdro.cashdro_verify_ssl', False)
+        if 'cashdro_max_retries' in fields_list:
+            res['cashdro_max_retries'] = _get_param_int('cs_pos_smart_cash_cashdro.cashdro_max_retries', 3)
+        if 'cashdro_retry_delay' in fields_list:
+            res['cashdro_retry_delay'] = _get_param_int('cs_pos_smart_cash_cashdro.cashdro_retry_delay', 2)
+        if 'cashdro_auto_confirm_payments' in fields_list:
+            res['cashdro_auto_confirm_payments'] = _get_param_bool('cs_pos_smart_cash_cashdro.cashdro_auto_confirm_payments', True)
+        if 'cashdro_log_level' in fields_list:
+            res['cashdro_log_level'] = _get_param('cs_pos_smart_cash_cashdro.cashdro_log_level', 'INFO')
 
         return res
 
