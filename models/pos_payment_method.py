@@ -201,11 +201,11 @@ class PosPaymentMethod(models.Model):
     def _payment_request_from_kiosk(self, order):
         """
         Override: Procesar pago Cashdrop en kiosk.
-        Si es Cashdrop: inicia el pago y devuelve status 'pending' (no tramitar orden aún).
+        Si es Cashdrop (Efectivisimo): inicia el pago y devuelve status 'pending' (no tramitar orden aún).
         Si es otro método: devuelve success para flujo normal.
         """
         # No es Cashdrop: flujo normal
-        if self.name != 'Cashdrop' or not self.journal_id or self.journal_id.name != 'Cashdrop':
+        if self.name != 'Efectivisimo' or not self.journal_id or self.journal_id.name != 'CajaCashdro':
             return {
                 'payment_method': self.name,
                 'status': 'success',
