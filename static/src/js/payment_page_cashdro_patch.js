@@ -22,10 +22,6 @@ patch(PaymentPage.prototype, {
      */
     async startPayment() {
         this.selfOrder.paymentError = false;
-        const paymentMethod = this.selectedPaymentMethod;
-        if (!paymentMethod) {
-            return;
-        }
 
         const payload = {
             order: this.selfOrder.currentOrder.serializeForORM(),
@@ -39,28 +35,37 @@ patch(PaymentPage.prototype, {
                 `/kiosk/payment/${this.selfOrder.config.id}/kiosk`,
                 payload
             );
+            console.log("[Cashdrop] RPC Response:", response);
         } catch (error) {
+            console.error("[Cashdrop] RPC Error:", error);
             this.selfOrder.handleErrorNotification(error);
             this.selfOrder.paymentError = true;
             return;
         }
 
-        const ps = response.payment_status || {};
+        const ps = response?.payment_status || {};
+        console.log("[Cashdrop] Payment Status:", ps);
 
+        // ✓ SI ES CASHDROP Y ESTÁ PENDIENTE: MOSTRAR DIÁLOGO (NO CONTINUAR)
         if (ps.is_cashdrop && ps.status === "pending") {
+            console.log("[Cashdrop] Opening pending dialog");
             this._openCashdropPendingDialog(response);
-            return;
+            return; // ← IMPORTANTE: NO CONTINUAR, ESPERAR CONFIRMACIÓN
         }
 
+        // ✗ SI CASHDROP DEVOLVIÓ ERROR
         if (ps.is_cashdrop && ps.status === "error") {
+            console.error("[Cashdrop] Payment error:", ps.message);
             this.selfOrder.handleErrorNotification(ps.message || "Error en Cashdrop");
             this.selfOrder.paymentError = true;
             return;
         }
 
-        // Éxito o método no Cashdrop: aplicar orden y continuar (back ya tramitó en backend)
-        this._applyPaymentSuccess(response);
-    },
+        // ✓ SI NO ES CASHDROP O EL PAGO YA ESTÁ CONFIRMADO: CONTINUAR FLUJO NORMAL
+        console.log("[Cashdrop] Applying success, continuing normal flow");
+        // Llamar al super.startPayment() para que continúe el flujo normal de pos_self_order
+        // (que tramitará la orden automáticamente)
+    }
 
     _openCashdropPendingDialog(response) {
         const ps = response.payment_status || {};
