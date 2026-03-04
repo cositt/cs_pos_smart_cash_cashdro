@@ -20,7 +20,16 @@
         "base",
         "sale",
         "point_of_sale",
+        "pos_self_order",
+        "pos_self_order_iot",
     ],
+    "assets": {
+        "pos_self_order.assets": [
+            "cs_pos_smart_cash_cashdro/static/src/js/cashdrop_pending_dialog.js",
+            "cs_pos_smart_cash_cashdro/static/src/js/cashdrop_pending_dialog.xml",
+            "cs_pos_smart_cash_cashdro/static/src/js/payment_page_cashdro_patch.js",
+        ],
+    },
     "data": [
         # Security
         "security/ir.model.access.csv",

@@ -370,11 +370,11 @@ class CashdropPaymentController(http.Controller):
     def _error_response(self, message, status_code=400):
         """
         Construir respuesta de error
-        
+
         Args:
             message (str): Mensaje de error
             status_code (int): Código HTTP
-            
+
         Returns:
             dict: Response con success=False
         """
@@ -383,7 +383,70 @@ class CashdropPaymentController(http.Controller):
             'error': str(message),
             'timestamp': datetime.now().isoformat()
         }
-        
+
         # Odoo automáticamente usa el status_code del contexto
         # Si necesitas devolver un status específico, debes usarlo en el return
         return response
+
+    # ========================
+    # ENDPOINT: CONFIRMAR PAGO EN KIOSK
+    # ========================
+
+    @http.route('/cashdro/payment/kiosk/confirm', auth='user', type='jsonrpc', methods=['POST'])
+    def kiosk_payment_confirm(self, **kwargs):
+        """
+        Confirmar pago en kiosk después de que Cashdrop procesa.
+        El frontend llama aquí cuando el cliente toca "Confirmar pago";
+        se confirma la transacción y se tramita la orden (action_pos_order_paid).
+
+        Request JSON: {"transaction_id": "uuid", "order_id": 123}
+        Response: {"success": true, "message": "...", "order_id": 123}
+        """
+        try:
+            data = http.request.jsonrequest
+            transaction_id = data.get('transaction_id')
+            order_id = data.get('order_id')
+
+            if not transaction_id or not order_id:
+                return self._error_response(
+                    'Parámetros faltantes: transaction_id, order_id', 400
+                )
+
+            transaction_model = http.request.env['cashdro.transaction']
+            transaction = transaction_model.get_by_transaction_id(transaction_id)
+            if not transaction:
+                return self._error_response('Transacción no encontrada', 404)
+
+            integration = PaymentMethodIntegration(
+                http.request.env,
+                payment_method_id=transaction.payment_method_id.id
+            )
+
+            try:
+                result = integration.confirm_payment(transaction)
+            except UserError as e:
+                return self._error_response(str(e), 400)
+
+            if not result.get('success'):
+                return self._error_response(
+                    result.get('error', 'Error al confirmar pago en Cashdrop'),
+                    400
+                )
+
+            order = http.request.env['pos.order'].browse(order_id)
+            if not order.exists():
+                return self._error_response('Orden no encontrada', 404)
+
+            order.action_pos_order_paid()
+            _logger.info(
+                "Kiosk payment confirmed and order sent to kitchen: order_id=%s",
+                order_id
+            )
+            return self._success_response({
+                'message': 'Pago confirmado, orden enviada a cocina',
+                'order_id': order.id
+            })
+
+        except Exception as e:
+            _logger.error("Kiosk payment confirm error: %s", e, exc_info=True)
+            return self._error_response(str(e), 500)

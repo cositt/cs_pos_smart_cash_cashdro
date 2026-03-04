@@ -32,10 +32,19 @@ class CashdroTransaction(models.Model):
     order_id = fields.Many2one(
         'sale.order',
         string='Orden de Venta',
-        required=True,
+        required=False,
         readonly=True,
         ondelete='cascade',
-        help='Orden de venta relacionada'
+        help='Orden de venta relacionada (opcional si es pago desde POS/kiosk)'
+    )
+
+    pos_order_id = fields.Many2one(
+        'pos.order',
+        string='Orden POS',
+        required=False,
+        readonly=True,
+        ondelete='cascade',
+        help='Orden POS relacionada (kiosk/tienda)'
     )
     
     payment_method_id = fields.Many2one(
@@ -174,6 +183,15 @@ class CashdroTransaction(models.Model):
     # VALIDACIONES
     # ========================
     
+    @api.constrains('order_id', 'pos_order_id')
+    def _check_order_reference(self):
+        """Al menos uno de order_id o pos_order_id debe estar definido"""
+        for record in self:
+            if not record.order_id and not record.pos_order_id:
+                raise ValidationError(
+                    _('Debe indicar orden de venta (order_id) u orden POS (pos_order_id)')
+                )
+
     @api.constrains('amount')
     def _check_amount(self):
         """Validar que el monto sea positivo"""

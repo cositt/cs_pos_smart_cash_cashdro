@@ -5,9 +5,11 @@
 from . import pos_payment_method
 from . import cashdro_transaction
 from . import res_config_settings
+from . import pos_config
 
 __all__ = [
     'pos_payment_method',
     'cashdro_transaction',
     'res_config_settings',
+    'pos_config',
 ]

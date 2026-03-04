@@ -1,0 +1,20 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<templates xml:space="preserve">
+    <t t-name="cs_pos_smart_cash_cashdro.CashdropPendingDialog">
+        <Dialog title="'Pago en Cashdrop'" size="'md'">
+            <div class="cashdrop-pending-dialog p-4">
+                <div class="payment-info bg-light rounded p-3 mb-3">
+                    <p class="mb-1" t-if="props.message" t-esc="props.message"/>
+                    <p class="mb-0 small text-muted" t-if="props.operation_id">
+                        Operación: <t t-esc="props.operation_id"/>
+                    </p>
+                </div>
+                <p class="mb-3">Inserte el efectivo en la máquina Cashdrop. Cuando haya terminado, pulse "Confirmar pago".</p>
+            </div>
+            <t t-set-slot="footer">
+                <button class="btn btn-secondary" t-on-click="() => this.props.onCancel()">Cancelar</button>
+                <button class="btn btn-primary" t-on-click="() => this.props.onConfirm()">Confirmar pago</button>
+            </t>
+        </Dialog>
+    </t>
+</templates>

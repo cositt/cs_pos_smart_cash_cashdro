@@ -7,6 +7,8 @@ from odoo.exceptions import ValidationError
 import requests
 import logging
 
+from .payment_method_integration import PaymentMethodIntegration
+
 _logger = logging.getLogger(__name__)
 
 
@@ -196,6 +198,66 @@ class PosPaymentMethod(models.Model):
             }
         }
     
+    def _payment_request_from_kiosk(self, order):
+        """
+        Override: Procesar pago Cashdrop en kiosk.
+        Si es Cashdrop: inicia el pago y devuelve status 'pending' (no tramitar orden aún).
+        Si es otro método: devuelve success para flujo normal.
+        """
+        # No es Cashdrop: flujo normal
+        if self.name != 'Cashdrop' or not self.journal_id or self.journal_id.name != 'Cashdrop':
+            return {
+                'payment_method': self.name,
+                'status': 'success',
+                'is_cashdrop': False,
+                'message': _('Esperando pago en %s') % self.name,
+            }
+
+        try:
+            integration = PaymentMethodIntegration(self.env, payment_method_id=self.id)
+            validation = integration.validate_configuration()
+            if not validation['valid']:
+                msg = '; '.join(validation['errors'])
+                return {
+                    'payment_method': self.name,
+                    'status': 'error',
+                    'is_cashdrop': True,
+                    'message': _('Error de configuración: %s') % msg,
+                }
+
+            transaction = integration.create_transaction(
+                amount=order.amount_total,
+                user_id=self.env.user.id,
+                pos_session_id=order.session_id.id if order.session_id else None,
+                pos_order_id=order.id,
+            )
+            result = integration.start_payment(transaction, user_credentials=None)
+
+            if not result.get('success'):
+                return {
+                    'payment_method': self.name,
+                    'status': 'error',
+                    'is_cashdrop': True,
+                    'message': result.get('error', _('Error al iniciar pago en Cashdrop')),
+                }
+
+            return {
+                'payment_method': self.name,
+                'status': 'pending',
+                'is_cashdrop': True,
+                'transaction_id': transaction.transaction_id,
+                'operation_id': result.get('operation_id'),
+                'message': _('Esperando confirmación de pago en Cashdrop...'),
+            }
+        except Exception as e:
+            _logger.exception("Kiosk Cashdrop payment error")
+            return {
+                'payment_method': self.name,
+                'status': 'error',
+                'is_cashdrop': True,
+                'message': str(e),
+            }
+
     def action_get_payment_info(self):
         """Obtiene información de disponibilidad de piezas de Cashdrop"""
         self.ensure_one()
