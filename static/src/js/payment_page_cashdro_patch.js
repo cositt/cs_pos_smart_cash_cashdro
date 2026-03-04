@@ -63,9 +63,8 @@ patch(PaymentPage.prototype, {
 
         // ✓ SI NO ES CASHDROP O EL PAGO YA ESTÁ CONFIRMADO: CONTINUAR FLUJO NORMAL
         console.log("[Cashdrop] Applying success, continuing normal flow");
-        // Llamar al super.startPayment() para que continúe el flujo normal de pos_self_order
-        // (que tramitará la orden automáticamente)
-    }
+        await super.startPayment();
+    },
 
     _openCashdropPendingDialog(response) {
         const ps = response.payment_status || {};
