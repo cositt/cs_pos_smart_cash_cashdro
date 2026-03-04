@@ -171,10 +171,16 @@ class CashdroTransaction(models.Model):
     
     @api.model_create_multi
     def create(self, vals_list):
-        """Generar nombre secuencial al crear"""
+        """Generar ID secuencial y transaction_id al crear"""
         for vals in vals_list:
+            # Generar 'name' (referencia secuencial)
             if not vals.get('name'):
                 vals['name'] = self.env['ir.sequence'].next_by_code(
+                    'cashdro.transaction.sequence'
+                ) or f"TXN-{datetime.now().timestamp()}"
+            # Generar 'transaction_id' si no está proporcionado
+            if not vals.get('transaction_id'):
+                vals['transaction_id'] = self.env['ir.sequence'].next_by_code(
                     'cashdro.transaction.sequence'
                 ) or f"TXN-{datetime.now().timestamp()}"
         return super().create(vals_list)

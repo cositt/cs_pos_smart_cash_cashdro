@@ -20,18 +20,21 @@ class CashdropGatewayIntegration:
     Encapsula todos los endpoints y lógica de comunicación con el gateway.
     """
 
-    def __init__(self, gateway_url, timeout=10, verify_ssl=False, log_level='INFO'):
+    def __init__(self, gateway_url, timeout=10, verify_ssl=False, log_level='INFO', user=None, password=None):
         self.gateway_url = gateway_url.rstrip('/')
         self.timeout = timeout
         self.verify_ssl = verify_ssl
         self.log_level = log_level
         self.endpoint = f"{self.gateway_url}/Cashdro3WS/index.php"
+        self.user = user
+        self.password = password
         _logger.setLevel(getattr(logging, log_level, logging.INFO))
 
     def login(self, user, password):
         try:
             _logger.debug("Intentando login en %s con usuario %s", self.gateway_url, user)
-            params = {'operation': 'login', 'user': user, 'password': password}
+            # El parámetro correcto es 'name', no 'user'
+            params = {'operation': 'login', 'name': user, 'password': password}
             response = requests.get(
                 self.endpoint, params=params, timeout=self.timeout, verify=self.verify_ssl
             )
@@ -54,6 +57,11 @@ class CashdropGatewayIntegration:
                 'type': operation_type,
                 'amount': amount_centavos
             }
+            # Agregar credenciales si están disponibles
+            if self.user and self.password:
+                params['name'] = self.user
+                params['password'] = self.password
+            _logger.info("Parámetros de startOperation: %s", json.dumps(params))
             response = requests.get(
                 self.endpoint, params=params, timeout=self.timeout, verify=self.verify_ssl
             )
@@ -61,6 +69,7 @@ class CashdropGatewayIntegration:
             data = self._parse_response(response)
             operation_id = data.get('operation_id')
             if not operation_id:
+                _logger.error("Respuesta sin operation_id: %s", json.dumps(data, indent=2))
                 raise ValueError('No se recibió operation_id')
             _logger.info("Operación iniciada: operation_id=%s", operation_id)
             return data

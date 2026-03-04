@@ -28,7 +28,7 @@ class CashdropPaymentController(http.Controller):
     # ENDPOINT 1: INICIAR PAGO
     # ========================
     
-    @http.route('/cashdro/payment/start', auth='user', type='jsonrpc', methods=['POST'])
+    @http.route('/cashdro/payment/start', auth='public', type='http', methods=['POST'], csrf=False)
     def start_payment(self, **kwargs):
         """
         Endpoint para iniciar pago
@@ -54,16 +54,26 @@ class CashdropPaymentController(http.Controller):
         }
         """
         try:
-            data = http.request.jsonrequest
+            try:
+                data = json.loads(http.request.httprequest.data)
+            except (json.JSONDecodeError, ValueError):
+                return self._error_response('Request JSON inválido', 400)
             
             # Validar parámetros requeridos
             order_id = data.get('order_id')
+            pos_order_id = data.get('pos_order_id')
             payment_method_id = data.get('payment_method_id')
             amount = data.get('amount')
             
-            if not all([order_id, payment_method_id, amount]):
+            # Debe haber al menos una orden (sale.order o pos.order)
+            if not (order_id or pos_order_id):
                 return self._error_response(
-                    'Parámetros faltantes: order_id, payment_method_id, amount',
+                    'Parámetros faltantes: order_id o pos_order_id, payment_method_id, amount',
+                    400
+                )
+            if not payment_method_id or not amount:
+                return self._error_response(
+                    'Parámetros faltantes: payment_method_id, amount',
                     400
                 )
             
@@ -88,6 +98,7 @@ class CashdropPaymentController(http.Controller):
             # Crear transacción
             transaction = integration.create_transaction(
                 order_id=order_id,
+                pos_order_id=pos_order_id,
                 amount=amount,
                 user_id=http.request.env.user.id,
                 pos_session_id=data.get('pos_session_id')
@@ -114,7 +125,7 @@ class CashdropPaymentController(http.Controller):
     # ENDPOINT 2: CONFIRMAR PAGO
     # ========================
     
-    @http.route('/cashdro/payment/confirm', auth='user', type='jsonrpc', methods=['POST'])
+    @http.route('/cashdro/payment/confirm', auth='public', type='http', methods=['POST'], csrf=False)
     def confirm_payment(self, **kwargs):
         """
         Endpoint para confirmar pago (polling + confirmación)
@@ -134,7 +145,10 @@ class CashdropPaymentController(http.Controller):
         }
         """
         try:
-            data = http.request.jsonrequest
+            try:
+                data = json.loads(http.request.httprequest.data)
+            except (json.JSONDecodeError, ValueError):
+                return self._error_response('Request JSON inválido', 400)
             
             # Buscar transacción
             transaction = self._get_transaction(data)
@@ -165,7 +179,7 @@ class CashdropPaymentController(http.Controller):
     # ENDPOINT 3: CANCELAR PAGO
     # ========================
     
-    @http.route('/cashdro/payment/cancel', auth='user', type='jsonrpc', methods=['POST'])
+    @http.route('/cashdro/payment/cancel', auth='public', type='http', methods=['POST'], csrf=False)
     def cancel_payment(self, **kwargs):
         """
         Endpoint para cancelar pago
@@ -184,7 +198,10 @@ class CashdropPaymentController(http.Controller):
         }
         """
         try:
-            data = http.request.jsonrequest
+            try:
+                data = json.loads(http.request.httprequest.data)
+            except (json.JSONDecodeError, ValueError):
+                return self._error_response('Request JSON inválido', 400)
             
             # Buscar transacción
             transaction = self._get_transaction(data)
@@ -216,7 +233,7 @@ class CashdropPaymentController(http.Controller):
     # ========================
     
     @http.route('/cashdro/payment/status/<string:transaction_id>', 
-                 auth='user', type='jsonrpc', methods=['GET'])
+                 auth='public', type='http', methods=['GET'])
     def get_payment_status(self, transaction_id, **kwargs):
         """
         Endpoint para obtener estado de pago
@@ -264,7 +281,7 @@ class CashdropPaymentController(http.Controller):
     # ENDPOINT 5: INFORMACIÓN DE PAGO
     # ========================
     
-    @http.route('/cashdro/payment/info', auth='user', type='jsonrpc', methods=['POST'])
+    @http.route('/cashdro/payment/info', auth='public', type='http', methods=['POST'], csrf=False)
     def get_payment_info(self, **kwargs):
         """
         Endpoint para obtener información general de un pago
@@ -291,7 +308,10 @@ class CashdropPaymentController(http.Controller):
         }
         """
         try:
-            data = http.request.jsonrequest
+            try:
+                data = json.loads(http.request.httprequest.data)
+            except (json.JSONDecodeError, ValueError):
+                return self._error_response('Request JSON inválido', 400)
             
             # Buscar transacción
             transaction = self._get_transaction(data)
@@ -361,11 +381,15 @@ class CashdropPaymentController(http.Controller):
             data (dict): Datos de respuesta
             
         Returns:
-            dict: Response con success=True
+            http.Response: JSON response con success=True
         """
         response = {'success': True}
         response.update(data)
-        return response
+        return http.Response(
+            json.dumps(response),
+            status=200,
+            mimetype='application/json'
+        )
     
     def _error_response(self, message, status_code=400):
         """
@@ -376,23 +400,24 @@ class CashdropPaymentController(http.Controller):
             status_code (int): Código HTTP
 
         Returns:
-            dict: Response con success=False
+            http.Response: JSON response con success=False
         """
         response = {
             'success': False,
             'error': str(message),
             'timestamp': datetime.now().isoformat()
         }
-
-        # Odoo automáticamente usa el status_code del contexto
-        # Si necesitas devolver un status específico, debes usarlo en el return
-        return response
+        return http.Response(
+            json.dumps(response),
+            status=status_code,
+            mimetype='application/json'
+        )
 
     # ========================
     # ENDPOINT: CONFIRMAR PAGO EN KIOSK
     # ========================
 
-    @http.route('/cashdro/payment/kiosk/confirm', auth='user', type='jsonrpc', methods=['POST'])
+    @http.route('/cashdro/payment/kiosk/confirm', auth='public', type='http', methods=['POST'], csrf=False)
     def kiosk_payment_confirm(self, **kwargs):
         """
         Confirmar pago en kiosk después de que Cashdrop procesa.
@@ -403,7 +428,10 @@ class CashdropPaymentController(http.Controller):
         Response: {"success": true, "message": "...", "order_id": 123}
         """
         try:
-            data = http.request.jsonrequest
+            try:
+                data = json.loads(http.request.httprequest.data)
+            except (json.JSONDecodeError, ValueError):
+                return self._error_response('Request JSON inválido', 400)
             transaction_id = data.get('transaction_id')
             order_id = data.get('order_id')
 

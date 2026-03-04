@@ -24,14 +24,17 @@ class PaymentMethodIntegration:
         self.payment_method_id = payment_method_id
         self.payment_method = None
         self.gateway = None
-        self.transaction_model = env['cashdro.transaction']
-        self.config_model = env['res.config.settings']
+        # Usar sudo para acceso a modelos sin restricciones de permiso
+        self.transaction_model = env['cashdro.transaction'].sudo()
+        self.config_model = env['res.config.settings'].sudo()
 
         if payment_method_id:
             self.load_payment_method(payment_method_id)
 
     def load_payment_method(self, payment_method_id):
-        payment_method = self.env['pos.payment.method'].browse(payment_method_id)
+        # Usar sudo para evitar problemas de permisos en endpoints publicos
+        payment_method_model = self.env['pos.payment.method'].sudo()
+        payment_method = payment_method_model.browse(payment_method_id)
         if not payment_method.exists():
             raise UserError(_('Método de pago no encontrado'))
         if not payment_method.cashdro_enabled:
@@ -46,11 +49,16 @@ class PaymentMethodIntegration:
         timeout = self.config_model.get_cashdro_config().get('connection_timeout', 10)
         verify_ssl = self.config_model.get_cashdro_config().get('verify_ssl', False)
         log_level = self.config_model.get_cashdro_config().get('log_level', 'INFO')
+        # Pasar credenciales al gateway para que las incluya en cada request
+        user = self.payment_method.cashdro_user
+        password = self.payment_method.cashdro_password
         self.gateway = CashdropGatewayIntegration(
             gateway_url=gateway_url,
             timeout=timeout,
             verify_ssl=verify_ssl,
-            log_level=log_level
+            log_level=log_level,
+            user=user,
+            password=password
         )
 
     def create_transaction(self, order_id=None, amount=None, user_id=None, pos_session_id=None, pos_order_id=None):
@@ -92,11 +100,8 @@ class PaymentMethodIntegration:
         if not self.gateway:
             self._initialize_gateway()
         try:
-            if user_credentials:
-                self.gateway.login(
-                    user_credentials.get('user'),
-                    user_credentials.get('password')
-                )
+            # Las credenciales ya se envían con cada request del gateway
+            # No necesitamos hacer login separado
             amount_centavos = int(transaction.amount * 100)
             response = self.gateway.start_operation(amount_centavos)
             operation_id = response.get('operation_id')

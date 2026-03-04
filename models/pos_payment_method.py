@@ -173,7 +173,25 @@ class PosPaymentMethod(models.Model):
     def get_gateway_url(self):
         """Retorna la URL del gateway"""
         self.ensure_one()
-        return self.cashdro_gateway_url or 'http://localhost:5000'
+        # Si el método de pago tiene URL, usarla; si no, usar la configuración global
+        url = None
+        
+        if self.cashdro_gateway_url and self.cashdro_gateway_url != 'http://localhost:5000':
+            url = self.cashdro_gateway_url
+        else:
+            # Obtener de configuración global
+            config = self.env['res.config.settings'].sudo().get_cashdro_config()
+            url = config.get('gateway_url') if config else None
+        
+        # Si no hay nada, usar default
+        if not url:
+            url = 'https://10.0.1.140'  # Default a la máquina Cashdrop real
+        
+        # Asegurar que la URL tenga protocolo
+        if url and not url.startswith(('http://', 'https://')):
+            url = 'https://' + url
+        
+        return url
     
     def is_cashdrop_enabled(self):
         """Verifica si Cashdrop está habilitado"""
