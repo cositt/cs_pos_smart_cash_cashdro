@@ -28,7 +28,7 @@ class CashdropPaymentController(http.Controller):
     # ENDPOINT 1: INICIAR PAGO
     # ========================
     
-    @http.route('/cashdro/payment/start', auth='user', type='jsonrpc', methods=['POST'])
+    @http.route('/cashdro/payment/start', auth='user', type='json', methods=['POST'])
     def start_payment(self, **kwargs):
         """
         Endpoint para iniciar pago
@@ -114,7 +114,7 @@ class CashdropPaymentController(http.Controller):
     # ENDPOINT 2: CONFIRMAR PAGO
     # ========================
     
-    @http.route('/cashdro/payment/confirm', auth='user', type='jsonrpc', methods=['POST'])
+    @http.route('/cashdro/payment/confirm', auth='user', type='json', methods=['POST'])
     def confirm_payment(self, **kwargs):
         """
         Endpoint para confirmar pago (polling + confirmación)
@@ -165,7 +165,7 @@ class CashdropPaymentController(http.Controller):
     # ENDPOINT 3: CANCELAR PAGO
     # ========================
     
-    @http.route('/cashdro/payment/cancel', auth='user', type='jsonrpc', methods=['POST'])
+    @http.route('/cashdro/payment/cancel', auth='user', type='json', methods=['POST'])
     def cancel_payment(self, **kwargs):
         """
         Endpoint para cancelar pago
@@ -216,7 +216,7 @@ class CashdropPaymentController(http.Controller):
     # ========================
     
     @http.route('/cashdro/payment/status/<string:transaction_id>', 
-                 auth='user', type='jsonrpc', methods=['GET'])
+                 auth='user', type='json', methods=['GET'])
     def get_payment_status(self, transaction_id, **kwargs):
         """
         Endpoint para obtener estado de pago
@@ -264,7 +264,7 @@ class CashdropPaymentController(http.Controller):
     # ENDPOINT 5: INFORMACIÓN DE PAGO
     # ========================
     
-    @http.route('/cashdro/payment/info', auth='user', type='jsonrpc', methods=['POST'])
+    @http.route('/cashdro/payment/info', auth='user', type='json', methods=['POST'])
     def get_payment_info(self, **kwargs):
         """
         Endpoint para obtener información general de un pago

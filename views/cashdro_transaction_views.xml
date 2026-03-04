@@ -5,7 +5,7 @@
         <field name="name">cashdro.transaction.tree</field>
         <field name="model">cashdro.transaction</field>
         <field name="arch" type="xml">
-            <tree string="Transacciones Cashdrop" decoration-success="status == 'confirmed'" decoration-danger="status == 'error'" decoration-warning="status == 'processing'">
+            <list string="Transacciones Cashdrop" decoration-success="status == 'confirmed'" decoration-danger="status == 'error'" decoration-warning="status == 'processing'">
                 <field name="name"/>
                 <field name="transaction_id"/>
                 <field name="operation_id"/>
@@ -14,7 +14,7 @@
                 <field name="amount_received" sum="Total Recibido"/>
                 <field name="status"/>
                 <field name="create_date"/>
-            </tree>
+            </list>
         </field>
     </record>
 
@@ -25,17 +25,12 @@
         <field name="arch" type="xml">
             <form string="Transacción Cashdrop">
                 <header>
-                    <button name="action_confirm" type="object" string="Confirmar" class="btn-success" attrs="{'invisible': [('status', 'not in', ['processing', 'error'])]}"/>
-                    <button name="action_cancel" type="object" string="Cancelar" class="btn-danger" attrs="{'invisible': [('status', 'not in', ['processing', 'error'])]}"/>
-                    <button name="action_retry" type="object" string="Reintentar" class="btn-warning" attrs="{'invisible': [('status', 'not in', ['error', 'timeout', 'cancelled'])]}"/>
+                    <button name="action_confirm" type="object" string="Confirmar" class="btn-success" invisible="status not in ('processing', 'error')"/>
+                    <button name="action_cancel" type="object" string="Cancelar" class="btn-danger" invisible="status not in ('processing', 'error')"/>
+                    <button name="action_retry" type="object" string="Reintentar" class="btn-warning" invisible="status not in ('error', 'timeout', 'cancelled')"/>
                     <field name="status" widget="statusbar" options="{'clickable': false}"/>
                 </header>
                 <sheet>
-                    <div class="oe_button_box" name="button_box">
-                        <button name="toggle_active" type="object" class="oe_stat_button" icon="fa-archive">
-                            <field name="active" widget="boolean_button" options='{"terminology": "archive"}' invisible="True"/>
-                        </button>
-                    </div>
                     <h1>
                         <field name="name" readonly="True"/>
                     </h1>
@@ -64,13 +59,13 @@
                     <notebook>
                         <page string="Datos Técnicos">
                             <group>
-                                <field name="response_data" nolabel="True" readonly="True" widget="ace" options="{'mode': 'json'}"/>
+                                <field name="response_data" nolabel="1" readonly="1"/>
                             </group>
                         </page>
                         <page string="Errores">
                             <group>
-                                <field name="error_message" nolabel="True" readonly="True" attrs="{'invisible': [('error_message', '=', False)]}"/>
-                                <div attrs="{'invisible': [('error_message', '!=', False)]}">
+                            <field name="error_message" nolabel="1" readonly="1" invisible="not error_message"/>
+                                <div invisible="error_message">
                                     <p>Sin errores</p>
                                 </div>
                             </group>
@@ -97,10 +92,7 @@
                 <filter string="Confirmado" name="filter_confirmed" domain="[('status', '=', 'confirmed')]"/>
                 <filter string="Cancelado" name="filter_cancelled" domain="[('status', '=', 'cancelled')]"/>
                 <filter string="Error" name="filter_error" domain="[('status', 'in', ['error', 'timeout'])]"/>
-                <separator/>
-                <filter string="Hoy" name="filter_today" domain="[('create_date', '>=', context_today().strftime('%Y-%m-%d 00:00:00')), ('create_date', '&lt;=', context_today().strftime('%Y-%m-%d 23:59:59'))]"/>
-                <filter string="Esta Semana" name="filter_week" domain="[('create_date', '&gt;=', (context_today() - timedelta(days=7)).strftime('%Y-%m-%d'))]"/>
-                <group expand="1" string="Agrupar por">
+                <group>
                     <filter string="Estado" name="group_status" domain="[]" context="{'group_by': 'status'}"/>
                     <filter string="Método de Pago" name="group_payment" domain="[]" context="{'group_by': 'payment_method_id'}"/>
                     <filter string="Usuario" name="group_user" domain="[]" context="{'group_by': 'user_id'}"/>
@@ -114,7 +106,7 @@
     <record id="action_cashdro_transaction" model="ir.actions.act_window">
         <field name="name">Transacciones Cashdrop</field>
         <field name="res_model">cashdro.transaction</field>
-        <field name="view_mode">tree,form</field>
+        <field name="view_mode">list,form</field>
         <field name="search_view_id" ref="view_cashdro_transaction_search"/>
         <field name="context">{"search_default_filter_processing": 1}</field>
     </record>

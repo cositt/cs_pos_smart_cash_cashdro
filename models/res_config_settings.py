@@ -30,6 +30,24 @@ class ResConfigSettings(models.TransientModel):
         help='URL del gateway Cashdrop por defecto (ej: https://10.0.1.140)'
     )
     
+    cashdro_default_host = fields.Char(
+        string='Host/IP por Defecto',
+        config_parameter='cs_pos_smart_cash_cashdro.cashdro_default_host',
+        help='IP o hostname de la máquina Cashdrop (ej: 10.0.1.140)'
+    )
+    
+    cashdro_default_user = fields.Char(
+        string='Usuario por Defecto',
+        config_parameter='cs_pos_smart_cash_cashdro.cashdro_default_user',
+        help='Usuario para autenticación en Cashdrop'
+    )
+    
+    cashdro_default_password = fields.Char(
+        string='Contraseña por Defecto',
+        config_parameter='cs_pos_smart_cash_cashdro.cashdro_default_password',
+        help='Contraseña para autenticación en Cashdrop'
+    )
+    
     # ========================
     # CONFIGURACIÓN DE COMUNICACIÓN
     # ========================

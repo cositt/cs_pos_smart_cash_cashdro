@@ -27,30 +27,23 @@ class PosPaymentMethod(models.Model):
     
     cashdro_host = fields.Char(
         string='Host/IP de Cashdrop',
-        help='IP o hostname de la máquina Cashdrop (ej: 10.0.1.140)',
-        states={'enabled': [('readonly', False)]},
-        required_if_cashdrop=True
+        help='IP o hostname de la máquina Cashdrop (ej: 10.0.1.140)'
     )
     
     cashdro_user = fields.Char(
         string='Usuario Cashdrop',
-        help='Usuario para autenticación en Cashdrop (ej: admin)',
-        states={'enabled': [('readonly', False)]},
-        required_if_cashdrop=True
+        help='Usuario para autenticación en Cashdrop (ej: admin)'
     )
     
     cashdro_password = fields.Char(
         string='Contraseña Cashdrop',
-        help='Contraseña para autenticación en Cashdrop',
-        states={'enabled': [('readonly', False)]},
-        required_if_cashdrop=True
+        help='Contraseña para autenticación en Cashdrop'
     )
     
     cashdro_gateway_url = fields.Char(
         string='URL del Gateway',
         default='http://localhost:5000',
-        help='URL del gateway Flask (ej: http://localhost:5000)',
-        required_if_cashdrop=True
+        help='URL del gateway Flask (ej: http://localhost:5000)'
     )
     
     cashdro_connection_status = fields.Selection(

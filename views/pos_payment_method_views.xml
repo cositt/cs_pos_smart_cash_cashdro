@@ -4,31 +4,27 @@
     <record id="view_pos_payment_method_form" model="ir.ui.view">
         <field name="name">pos.payment.method.form.cashdro</field>
         <field name="model">pos.payment.method</field>
-        <field name="inherit_id">point_of_sale.pos_payment_method_form</field>
+        <field name="inherit_id" ref="point_of_sale.pos_payment_method_view_form"/>
         <field name="arch" type="xml">
-            <xpath expr="//notebook" position="inside">
-                <page string="Configuración Cashdrop" attrs="{'invisible': [('is_bank_payment', '=', True)]}">
-                    <group>
-                        <group string="Habilitación">
-                            <field name="cashdro_enabled"/>
-                        </group>
-                        <group string="Conexión" attrs="{'invisible': [('cashdro_enabled', '=', False)]}">
-                            <field name="cashdro_host" placeholder="10.0.1.140"/>
-                            <field name="cashdro_user" placeholder="username"/>
-                            <field name="cashdro_password" password="True" placeholder="password"/>
-                            <field name="cashdro_gateway_url" placeholder="https://10.0.1.140"/>
-                        </group>
+            <xpath expr="//form/sheet" position="inside">
+                <group string="Configuración Cashdrop">
+                    <group string="Habilitación">
+                        <field name="cashdro_enabled"/>
                     </group>
-                    <group string="Estado de Conexión" attrs="{'invisible': [('cashdro_enabled', '=', False)]}">
-                        <field name="cashdro_connection_status" readonly="True"/>
-                        <field name="cashdro_last_check" readonly="True"/>
-                        <field name="cashdro_error_message" readonly="True" nolabel="True"/>
+                    <group string="Conexión" invisible="not cashdro_enabled">
+                        <field name="cashdro_host" placeholder="10.0.1.140"/>
+                        <field name="cashdro_user" placeholder="username"/>
+                        <field name="cashdro_password" password="True" placeholder="password"/>
+                        <field name="cashdro_gateway_url" placeholder="https://10.0.1.140"/>
                     </group>
-                    <footer attrs="{'invisible': [('cashdro_enabled', '=', False)]}">
-                        <button name="action_test_connection" type="object" string="Probar Conexión" class="btn-primary"/>
-                        <button name="action_get_payment_info" type="object" string="Info de Pago" class="btn-info"/>
-                    </footer>
-                </page>
+                </group>
+                <group string="Estado de Conexión" invisible="not cashdro_enabled">
+                    <field name="cashdro_connection_status" readonly="1"/>
+                    <field name="cashdro_last_check" readonly="1"/>
+                    <field name="cashdro_error_message" readonly="1" nolabel="1"/>
+                    <button name="action_test_connection" type="object" string="Probar Conexión" class="btn-primary"/>
+                    <button name="action_get_payment_info" type="object" string="Info de Pago" class="btn-secondary"/>
+                </group>
             </xpath>
         </field>
     </record>
@@ -37,9 +33,9 @@
     <record id="view_pos_payment_method_tree" model="ir.ui.view">
         <field name="name">pos.payment.method.tree.cashdro</field>
         <field name="model">pos.payment.method</field>
-        <field name="inherit_id">point_of_sale.pos_payment_method_tree</field>
+        <field name="inherit_id" ref="point_of_sale.pos_payment_method_view_tree"/>
         <field name="arch" type="xml">
-            <xpath expr="//tree" position="inside">
+            <xpath expr="//list" position="inside">
                 <field name="cashdro_enabled" optional="hide"/>
                 <field name="cashdro_connection_status" optional="hide"/>
             </xpath>
@@ -50,7 +46,7 @@
     <record id="action_pos_payment_method_cashdro" model="ir.actions.act_window">
         <field name="name">Métodos de Pago</field>
         <field name="res_model">pos.payment.method</field>
-        <field name="view_mode">tree,form</field>
+        <field name="view_mode">list,form</field>
         <field name="context">{"search_default_cashdro_enabled": 1}</field>
     </record>
 </odoo>

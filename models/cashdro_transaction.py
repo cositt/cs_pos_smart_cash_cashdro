@@ -53,9 +53,9 @@ class CashdroTransaction(models.Model):
     transaction_id = fields.Char(
         string='ID Transacción',
         required=True,
-        unique=True,
         readonly=True,
         copy=False,
+        index=True,
         help='Identificador único de la transacción en nuestro sistema'
     )
     
