@@ -49,7 +49,7 @@ class CashdropGatewayIntegration:
         except Exception as e:
             raise UserError(_('Error en login: %s') % str(e))
 
-    def start_operation(self, amount_centavos, operation_type=4):
+    def start_operation(self, amount_centavos, operation_type=0):
         try:
             _logger.debug("Iniciando operación: tipo=%s, monto=%sct", operation_type, amount_centavos)
             params = {
@@ -62,17 +62,30 @@ class CashdropGatewayIntegration:
                 params['name'] = self.user
                 params['password'] = self.password
             _logger.info("Parámetros de startOperation: %s", json.dumps(params))
+            # Construir URL completa para logging
+            from urllib.parse import urlencode
+            full_url = f"{self.endpoint}?{urlencode(params)}"
+            _logger.info("URL completa de startOperation: %s", full_url)
             response = requests.get(
                 self.endpoint, params=params, timeout=self.timeout, verify=self.verify_ssl
             )
             response.raise_for_status()
             data = self._parse_response(response)
+            # La respuesta puede ser {"code": 1, "data": "15503"} donde data es el operation_id
             operation_id = data.get('operation_id')
             if not operation_id:
-                _logger.error("Respuesta sin operation_id: %s", json.dumps(data, indent=2))
-                raise ValueError('No se recibió operation_id')
+                # Intentar obtener el operation_id de data si es un string numérico
+                resp_data = data.get('data')
+                if resp_data and isinstance(resp_data, str) and resp_data.isdigit():
+                    operation_id = resp_data
+                else:
+                    _logger.error("Respuesta sin operation_id: %s", json.dumps(data, indent=2))
+                    raise ValueError('No se recibió operation_id')
             _logger.info("Operación iniciada: operation_id=%s", operation_id)
-            return data
+            # Retornar con la clave operation_id añadida para consistency
+            result = data.copy()
+            result['operation_id'] = operation_id
+            return result
         except Exception as e:
             raise UserError(_('Error iniciando operación: %s') % str(e))
 
