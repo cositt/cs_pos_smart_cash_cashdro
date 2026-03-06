@@ -35,12 +35,13 @@
         "security/ir.model.access.csv",
         # Sequences
         "data/ir_sequence.xml",
-        # Views
+        # Views (cargan antes que permisos Movimientos para que ir.model exista)
         "views/pos_payment_method_views.xml",
         "views/cashdro_transaction_views.xml",
+        "views/cashdro_movimientos_views.xml",
         "views/res_config_settings_views.xml",
-        "views/menu_views.xml",
     ],
+    "post_init_hook": "post_init_hook",
     "images": ["static/description/icon.png"],
     "installable": True,
     "application": False,

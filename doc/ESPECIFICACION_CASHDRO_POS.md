@@ -11,8 +11,8 @@ Documento de análisis y requisitos para recrear la funcionalidad del módulo [C
 | **Nombre técnico** | `pos_smart_cash_cashdro` |
 | **Nombre comercial** | CashDro POS SmartCash |
 | **Versión Odoo** | 19.0 (también 17.0, 18.0) |
-| **Autor original** | Next Level Digital Solutions, LLC |
-| **Web** | https://www.nextlevel-digitalsolutions.com/ |
+| **Autor original** | Cositt Technology |
+| **Web** | https://www.cositt.com/ |
 | **Líneas de código (original)** | ~1238 |
 | **Dependencia comunitaria** | CashDro POS SmartCash (Terminal) – `pos_payment_config_cashdro` (~37 LOC) |
 

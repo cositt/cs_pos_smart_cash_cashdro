@@ -101,9 +101,8 @@ class PaymentMethodIntegration:
             self._initialize_gateway()
         try:
             # Las credenciales ya se envían con cada request del gateway
-            # No necesitamos hacer login separado
-            amount_centavos = int(transaction.amount * 100)
-            response = self.gateway.start_operation(amount_centavos)
+            # Monto en EUR: el gateway envía amount en céntimos vía parameters (API 3WS)
+            response = self.gateway.start_operation(transaction.amount)
             # El gateway retorna {code, data, operation_id} donde operation_id se extrajo de data
             operation_id = response.get('operation_id')
             transaction.write({'operation_id': operation_id, 'response_data': response})

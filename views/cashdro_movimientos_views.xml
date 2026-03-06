@@ -1,0 +1,160 @@
+<?xml version="1.0" encoding="utf-8"?>
+<openerp>
+    <record id="view_cashdro_caja_movimientos_form" model="ir.ui.view">
+        <field name="name">cashdro.caja.movimientos.form</field>
+        <field name="model">cashdro.caja.movimientos</field>
+        <field name="arch" type="xml">
+            <form string="Movimientos">
+                <sheet>
+                    <group>
+                        <group string="Caja">
+                            <field name="payment_method_id" options="{'no_create': True}"/>
+                            <field name="last_refresh" readonly="1"/>
+                            <button name="action_refresh" string="Actualizar estado" type="object" class="btn-primary"/>
+                        </group>
+                    </group>
+                    <notebook>
+                        <page string="Estado de la caja" name="state">
+                            <group col="1" string="Consulta de niveles">
+                                <field name="state_display" nolabel="1"/>
+                            </group>
+                            <group string="ESTADO DE FIANZA" col="1">
+                                <field name="state_fianza" nolabel="1"/>
+                            </group>
+                        </page>
+                        <page string="Movimientos" name="movimientos">
+                            <group string="Operaciones">
+                                <div class="row mt-3">
+                                    <button name="action_pago" string="Pago (cobro)" type="object" class="btn-secondary"/>
+                                    <button name="action_devolucion" string="Devolución" type="object" class="btn-secondary"/>
+                                    <button name="action_carga" string="Carga de dinero" type="object" class="btn-secondary"/>
+                                    <button name="action_inicializar_niveles" string="Inicializar niveles" type="object" class="btn-secondary"/>
+                                    <button name="action_configurar_fianza" string="Configurar fianza" type="object" class="btn-secondary"/>
+                                </div>
+                            </group>
+                        </page>
+                        <page string="Debug" name="debug">
+                            <field name="state_raw" nolabel="1"/>
+                        </page>
+                    </notebook>
+                </sheet>
+            </form>
+        </field>
+    </record>
+
+    <!-- Wizards (modales) -->
+    <record id="view_cashdro_movimiento_pago_wizard_form" model="ir.ui.view">
+        <field name="name">cashdro.movimiento.pago.wizard.form</field>
+        <field name="model">cashdro.movimiento.pago.wizard</field>
+        <field name="arch" type="xml">
+            <form string="Pago (cobro)">
+                <group>
+                    <field name="payment_method_id" readonly="1"/>
+                    <field name="amount"/>
+                </group>
+                <footer>
+                    <button name="action_execute" string="Iniciar pago" type="object" class="btn-primary"/>
+                    <button string="Cancelar" class="btn-secondary" special="cancel"/>
+                </footer>
+            </form>
+        </field>
+    </record>
+
+    <record id="view_cashdro_movimiento_devolucion_wizard_form" model="ir.ui.view">
+        <field name="name">cashdro.movimiento.devolucion.wizard.form</field>
+        <field name="model">cashdro.movimiento.devolucion.wizard</field>
+        <field name="arch" type="xml">
+            <form string="Devolución">
+                <group>
+                    <field name="payment_method_id" readonly="1"/>
+                    <field name="amount"/>
+                </group>
+                <footer>
+                    <button name="action_execute" string="Iniciar devolución" type="object" class="btn-primary"/>
+                    <button string="Cancelar" class="btn-secondary" special="cancel"/>
+                </footer>
+            </form>
+        </field>
+    </record>
+
+    <record id="view_cashdro_movimiento_carga_wizard_form" model="ir.ui.view">
+        <field name="name">cashdro.movimiento.carga.wizard.form</field>
+        <field name="model">cashdro.movimiento.carga.wizard</field>
+        <field name="arch" type="xml">
+            <form string="Carga de dinero">
+                <group>
+                    <field name="payment_method_id" readonly="1"/>
+                </group>
+                <footer>
+                    <button name="action_execute" string="Iniciar carga" type="object" class="btn-primary"/>
+                    <button string="Cancelar" class="btn-secondary" special="cancel"/>
+                </footer>
+            </form>
+        </field>
+    </record>
+
+    <record id="view_cashdro_movimiento_inicializar_wizard_form" model="ir.ui.view">
+        <field name="name">cashdro.movimiento.inicializar.wizard.form</field>
+        <field name="model">cashdro.movimiento.inicializar.wizard</field>
+        <field name="arch" type="xml">
+            <form string="Inicializar niveles">
+                <group>
+                    <field name="payment_method_id" readonly="1"/>
+                </group>
+                <footer>
+                    <button name="action_execute" string="Iniciar" type="object" class="btn-primary"/>
+                    <button string="Cancelar" class="btn-secondary" special="cancel"/>
+                </footer>
+            </form>
+        </field>
+    </record>
+
+    <record id="view_cashdro_movimiento_fianza_wizard_form" model="ir.ui.view">
+        <field name="name">cashdro.movimiento.fianza.wizard.form</field>
+        <field name="model">cashdro.movimiento.fianza.wizard</field>
+        <field name="arch" type="xml">
+            <form string="Configurar fianza">
+                <group>
+                    <field name="payment_method_id" readonly="1"/>
+                    <field name="levels_json" placeholder='{"limitRecyclerCheck": 0, "config": [...]}'/>
+                </group>
+                <footer>
+                    <button name="action_execute" string="Aplicar" type="object" class="btn-primary"/>
+                    <button string="Cancelar" class="btn-secondary" special="cancel"/>
+                </footer>
+            </form>
+        </field>
+    </record>
+
+    <!-- Menú Cashdrop y Movimientos (aquí para evitar RelaxNG en menu_views.xml) -->
+    <record id="action_cashdro_caja_movimientos" model="ir.actions.server">
+        <field name="name">Movimientos</field>
+        <field name="model_id" ref="base.model_res_users"/>
+        <field name="state">code</field>
+        <field name="code">action = env['cashdro.caja.movimientos'].create({}).action_open_form()</field>
+    </record>
+    <record id="menu_cashdro_root" model="ir.ui.menu">
+        <field name="name">Cashdrop</field>
+        <field name="web_icon">cs_pos_smart_cash_cashdro,static/description/icon.png</field>
+        <field name="group_ids" eval="[(4, ref('point_of_sale.group_pos_manager'))]"/>
+        <field name="sequence">100</field>
+    </record>
+    <record id="menu_cashdro_transactions" model="ir.ui.menu">
+        <field name="name">Transacciones</field>
+        <field name="parent_id" ref="menu_cashdro_root"/>
+        <field name="action" ref="action_cashdro_transaction"/>
+        <field name="sequence">10</field>
+    </record>
+    <record id="menu_cashdro_payment_methods" model="ir.ui.menu">
+        <field name="name">Métodos de Pago</field>
+        <field name="parent_id" ref="menu_cashdro_root"/>
+        <field name="action" ref="action_pos_payment_method_cashdro"/>
+        <field name="sequence">20</field>
+    </record>
+    <record id="menu_cashdro_movimientos" model="ir.ui.menu">
+        <field name="name">Movimientos</field>
+        <field name="parent_id" ref="menu_cashdro_root"/>
+        <field name="action" ref="action_cashdro_caja_movimientos"/>
+        <field name="sequence">5</field>
+    </record>
+</openerp>

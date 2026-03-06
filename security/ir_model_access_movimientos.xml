@@ -1,0 +1,59 @@
+<?xml version="1.0" encoding="utf-8"?>
+<odoo>
+    <data>
+    <record id="access_cashdro_caja_movimientos" model="ir.model.access">
+            <field name="name">Cashdro Caja Movimientos</field>
+            <field name="model_id" ref="model_cashdro_caja_movimientos"/>
+            <field name="group_id" ref="point_of_sale.group_pos_manager"/>
+            <field name="perm_read" eval="True"/>
+            <field name="perm_write" eval="True"/>
+            <field name="perm_create" eval="True"/>
+            <field name="perm_unlink" eval="True"/>
+        </record>
+        <record id="access_cashdro_movimiento_pago_wizard" model="ir.model.access">
+            <field name="name">Cashdro Pago Wizard</field>
+            <field name="model_id" ref="model_cashdro_movimiento_pago_wizard"/>
+            <field name="group_id" ref="point_of_sale.group_pos_manager"/>
+            <field name="perm_read" eval="True"/>
+            <field name="perm_write" eval="True"/>
+            <field name="perm_create" eval="True"/>
+            <field name="perm_unlink" eval="True"/>
+        </record>
+        <record id="access_cashdro_movimiento_devolucion_wizard" model="ir.model.access">
+            <field name="name">Cashdro Devolucion Wizard</field>
+            <field name="model_id" ref="model_cashdro_movimiento_devolucion_wizard"/>
+            <field name="group_id" ref="point_of_sale.group_pos_manager"/>
+            <field name="perm_read" eval="True"/>
+            <field name="perm_write" eval="True"/>
+            <field name="perm_create" eval="True"/>
+            <field name="perm_unlink" eval="True"/>
+        </record>
+        <record id="access_cashdro_movimiento_carga_wizard" model="ir.model.access">
+            <field name="name">Cashdro Carga Wizard</field>
+            <field name="model_id" ref="model_cashdro_movimiento_carga_wizard"/>
+            <field name="group_id" ref="point_of_sale.group_pos_manager"/>
+            <field name="perm_read" eval="True"/>
+            <field name="perm_write" eval="True"/>
+            <field name="perm_create" eval="True"/>
+            <field name="perm_unlink" eval="True"/>
+        </record>
+        <record id="access_cashdro_movimiento_inicializar_wizard" model="ir.model.access">
+            <field name="name">Cashdro Inicializar Wizard</field>
+            <field name="model_id" ref="model_cashdro_movimiento_inicializar_wizard"/>
+            <field name="group_id" ref="point_of_sale.group_pos_manager"/>
+            <field name="perm_read" eval="True"/>
+            <field name="perm_write" eval="True"/>
+            <field name="perm_create" eval="True"/>
+            <field name="perm_unlink" eval="True"/>
+        </record>
+        <record id="access_cashdro_movimiento_fianza_wizard" model="ir.model.access">
+            <field name="name">Cashdro Fianza Wizard</field>
+            <field name="model_id" ref="model_cashdro_movimiento_fianza_wizard"/>
+            <field name="group_id" ref="point_of_sale.group_pos_manager"/>
+            <field name="perm_read" eval="True"/>
+            <field name="perm_write" eval="True"/>
+            <field name="perm_create" eval="True"/>
+            <field name="perm_unlink" eval="True"/>
+        </record>
+    </data>
+</odoo>

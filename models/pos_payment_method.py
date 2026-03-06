@@ -71,7 +71,13 @@ class PosPaymentMethod(models.Model):
         readonly=True,
         help='Detalle del último error de conexión'
     )
-    
+
+    cashdro_deposit_levels_json = fields.Text(
+        string='Configuración fianza (última enviada)',
+        help='JSON de la última configuración enviada con Configurar fianza (setDepositLevels). '
+             'Se usa para mostrar Estado de fianza: Nivel fianza, reciclador y faltante.'
+    )
+
     # ========================
     # VALIDACIONES
     # ========================

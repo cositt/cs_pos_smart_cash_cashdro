@@ -1,6 +1,5 @@
 <?xml version="1.0" encoding="utf-8"?>
-<odoo>
-    <!-- Vista árbol para transacciones -->
+<openerp>
     <record id="view_cashdro_transaction_tree" model="ir.ui.view">
         <field name="name">cashdro.transaction.tree</field>
         <field name="model">cashdro.transaction</field>
@@ -110,4 +109,4 @@
         <field name="search_view_id" ref="view_cashdro_transaction_search"/>
         <field name="context">{"search_default_filter_processing": 1}</field>
     </record>
-</odoo>
+</openerp>

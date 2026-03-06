@@ -150,8 +150,16 @@ class CashdropPaymentController(http.Controller):
             except (json.JSONDecodeError, ValueError):
                 return self._error_response('Request JSON inválido', 400)
             
-            # Buscar transacción
-            transaction = self._get_transaction(data)
+            # Buscar transacción (usar sudo para evitar restricciones de permiso)
+            transaction_model = http.request.env['cashdro.transaction'].sudo()
+            transaction_id = data.get('transaction_id')
+            operation_id = data.get('operation_id')
+            if transaction_id:
+                transaction = transaction_model.search([('transaction_id', '=', transaction_id)], limit=1)
+            elif operation_id:
+                transaction = transaction_model.search([('operation_id', '=', operation_id)], limit=1)
+            else:
+                transaction = None
             if not transaction:
                 return self._error_response('Transacción no encontrada', 404)
             
