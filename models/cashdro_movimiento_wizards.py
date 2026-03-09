@@ -60,9 +60,26 @@ class CashdroMovimientoPagoWizard(models.TransientModel):
         self.ensure_one()
         if self.amount <= 0:
             raise UserError(_('El importe debe ser mayor que 0.'))
-        gateway = _get_gateway_from_method(self.env, self.payment_method_id.id)
-        gateway.start_operation(self.amount, operation_type=3)
-        return self._notify_and_close(_('Pago iniciado: %.2f €. Inserte dinero en la máquina.') % self.amount)
+        try:
+            gateway = _get_gateway_from_method(self.env, self.payment_method_id.id)
+            # type=4 = VENTA/COBRO (cobro_20centimos_FUNCIONA.py). index3.php + acknowledge.
+            gateway.start_operation(self.amount, operation_type=4)
+            return self._notify_and_close(_('Pago iniciado: %.2f €. Inserte dinero en la máquina.') % self.amount)
+        except Exception as e:
+            _logger.exception("CashDro Pago (cobro) falló")
+            msg = str(e)
+            if not msg:
+                msg = _('Error desconocido. Revisa logs de Odoo.')
+            return {
+                'type': 'ir.actions.client',
+                'tag': 'display_notification',
+                'params': {
+                    'title': _('Error CashDro'),
+                    'message': msg,
+                    'type': 'danger',
+                    'sticky': True,
+                },
+            }
 
 
 class CashdroMovimientoDevolucionWizard(models.TransientModel):
@@ -92,6 +109,7 @@ class CashdroMovimientoDevolucionWizard(models.TransientModel):
         if self.amount <= 0:
             raise UserError(_('El importe debe ser mayor que 0.'))
         gateway = _get_gateway_from_method(self.env, self.payment_method_id.id)
+        # type=3 = DEVOLUCIÓN/DISPENSA (payOutProgress). La máquina dispensará el importe.
         gateway.start_operation(self.amount, operation_type=3)
         return self._notify_and_close(_('Devolución iniciada: %.2f €. La máquina dispensará.') % self.amount)
 

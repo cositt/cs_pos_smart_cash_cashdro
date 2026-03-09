@@ -40,6 +40,7 @@ class CashdropGatewayIntegration:
         _logger.setLevel(getattr(logging, log_level, logging.INFO))
 
     def login(self, user, password):
+        """Login en index3.php (mismo flujo que cobro_20centimos_FUNCIONA.py)."""
         try:
             _logger.info("CashDro LOGIN: endpoint=%s user=%s", self.endpoint, user)
             params = {'operation': 'login', 'name': user, 'password': password}
@@ -52,10 +53,10 @@ class CashdropGatewayIntegration:
             return data
         except requests.exceptions.Timeout:
             _logger.error("CashDro LOGIN TIMEOUT: %s", self.endpoint)
-            raise UserError(_('Timeout conectando a Cashdrop'))
+            raise UserError(_('Timeout conectando a CashDro. Comprueba que Odoo pueda alcanzar %s (ej. desde Docker).') % self.gateway_url)
         except requests.exceptions.ConnectionError as e:
             _logger.error("CashDro LOGIN CONNECTION ERROR: %s -> %s", self.endpoint, e)
-            raise UserError(_('Error de conexión a Cashdrop: %s') % str(e))
+            raise UserError(_('No hay conexión con CashDro en %s. Comprueba la IP y que Odoo (p. ej. contenedor Docker) pueda alcanzar la máquina.') % self.gateway_url)
         except Exception as e:
             _logger.exception("CashDro LOGIN error")
             raise UserError(_('Error en login: %s') % str(e))
@@ -67,11 +68,10 @@ class CashdropGatewayIntegration:
         operation_type=4: VENTA/cobro (movimientos_funcionan/cobro_20centimos_FUNCIONA.py). type=3 también válido.
         """
         try:
-            # movimientos_funcionan: login en index3.php antes de startOperation para que la máquina active
+            # Flujo idéntico a cobro_20centimos_FUNCIONA.py: index3.php, login → startOperation → acknowledge
             self.login(self.user, self.password)
             _logger.debug("Iniciando operación Cashdro: tipo=%s, monto=%.2f EUR", operation_type, amount_eur)
             amount_cents = str(int(round(float(amount_eur) * 100)))
-            # movimientos_funcionan: parameters={"amount": amount_cents}, posid=1, posuser="odoo"
             params = {
                 'operation': 'startOperation',
                 'name': self.user,
@@ -100,8 +100,8 @@ class CashdropGatewayIntegration:
             if not operation_id:
                 _logger.error("CashDro startOperation SIN operation_id: code=%s response=%s", data.get('code'), data)
                 raise ValueError('No se recibió operation_id en la respuesta')
-            _logger.info("CashDro startOperation OK: operation_id=%s (la máquina debe recibir la señal)", operation_id)
-            # movimientos_funcionan: acknowledge justo después de start para que la máquina active
+            _logger.info("CashDro startOperation OK: operation_id=%s", operation_id)
+            # Acknowledge obligatorio para que la máquina muestre pantalla de pago (cobro_20centimos_FUNCIONA.py)
             try:
                 self.acknowledge_operation_id(operation_id)
             except Exception as ack_err:
