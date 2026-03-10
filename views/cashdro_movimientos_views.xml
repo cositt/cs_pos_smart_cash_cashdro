@@ -114,10 +114,77 @@
         <field name="model">cashdro.movimiento.fianza.wizard</field>
         <field name="arch" type="xml">
             <form string="Configurar fianza">
-                <group>
-                    <field name="payment_method_id" readonly="1"/>
-                    <field name="levels_json" placeholder='{"limitRecyclerCheck": 0, "config": [...]}'/>
-                </group>
+                <sheet>
+                    <group>
+                        <field name="payment_method_id" readonly="1"/>
+                    </group>
+                    <group>
+                        <group string="Monedas" col="3">
+                            <label string="Valor" for="deposit_coin_2" class="o_form_label fw-bold"/>
+                            <label string="Fianza" for="deposit_coin_2" class="o_form_label fw-bold"/>
+                            <label string="Total" for="total_coin_2" class="o_form_label fw-bold"/>
+                            <label string="2,00 €" for="deposit_coin_2" class="o_form_label"/>
+                            <field name="deposit_coin_2" nolabel="1"/>
+                            <field name="total_coin_2" readonly="1" nolabel="1" widget="monetary" options="{'currency_field': 'currency_id'}"/>
+                            <label string="1,00 €" for="deposit_coin_1" class="o_form_label"/>
+                            <field name="deposit_coin_1" nolabel="1"/>
+                            <field name="total_coin_1" readonly="1" nolabel="1" widget="monetary" options="{'currency_field': 'currency_id'}"/>
+                            <label string="0,50 €" for="deposit_coin_050" class="o_form_label"/>
+                            <field name="deposit_coin_050" nolabel="1"/>
+                            <field name="total_coin_050" readonly="1" nolabel="1" widget="monetary" options="{'currency_field': 'currency_id'}"/>
+                            <label string="0,20 €" for="deposit_coin_020" class="o_form_label"/>
+                            <field name="deposit_coin_020" nolabel="1"/>
+                            <field name="total_coin_020" readonly="1" nolabel="1" widget="monetary" options="{'currency_field': 'currency_id'}"/>
+                            <label string="0,10 €" for="deposit_coin_010" class="o_form_label"/>
+                            <field name="deposit_coin_010" nolabel="1"/>
+                            <field name="total_coin_010" readonly="1" nolabel="1" widget="monetary" options="{'currency_field': 'currency_id'}"/>
+                            <label string="0,05 €" for="deposit_coin_005" class="o_form_label"/>
+                            <field name="deposit_coin_005" nolabel="1"/>
+                            <field name="total_coin_005" readonly="1" nolabel="1" widget="monetary" options="{'currency_field': 'currency_id'}"/>
+                            <label string="Monedas:" for="monedas_units" class="o_form_label fw-bold"/>
+                            <field name="monedas_units" nolabel="1" class="fw-bold"/>
+                            <field name="monedas_total_eur" nolabel="1" widget="monetary" options="{'currency_field': 'currency_id'}" class="fw-bold"/>
+                        </group>
+                        <group string="Billetes" col="3">
+                            <label string="Valor" for="deposit_bill_200" class="o_form_label fw-bold"/>
+                            <label string="Fianza" for="deposit_bill_200" class="o_form_label fw-bold"/>
+                            <label string="Total" for="total_bill_200" class="o_form_label fw-bold"/>
+                            <label string="200 €" for="deposit_bill_200" class="o_form_label"/>
+                            <field name="deposit_bill_200" nolabel="1"/>
+                            <field name="total_bill_200" readonly="1" nolabel="1" widget="monetary" options="{'currency_field': 'currency_id'}"/>
+                            <label string="100 €" for="deposit_bill_100" class="o_form_label"/>
+                            <field name="deposit_bill_100" nolabel="1"/>
+                            <field name="total_bill_100" readonly="1" nolabel="1" widget="monetary" options="{'currency_field': 'currency_id'}"/>
+                            <label string="50 €" for="deposit_bill_50" class="o_form_label"/>
+                            <field name="deposit_bill_50" nolabel="1"/>
+                            <field name="total_bill_50" readonly="1" nolabel="1" widget="monetary" options="{'currency_field': 'currency_id'}"/>
+                            <label string="20 €" for="deposit_bill_20" class="o_form_label"/>
+                            <field name="deposit_bill_20" nolabel="1"/>
+                            <field name="total_bill_20" readonly="1" nolabel="1" widget="monetary" options="{'currency_field': 'currency_id'}"/>
+                            <label string="10 €" for="deposit_bill_10" class="o_form_label"/>
+                            <field name="deposit_bill_10" nolabel="1"/>
+                            <field name="total_bill_10" readonly="1" nolabel="1" widget="monetary" options="{'currency_field': 'currency_id'}"/>
+                            <label string="5 €" for="deposit_bill_5" class="o_form_label"/>
+                            <field name="deposit_bill_5" nolabel="1"/>
+                            <field name="total_bill_5" readonly="1" nolabel="1" widget="monetary" options="{'currency_field': 'currency_id'}"/>
+                            <label string="Billetes:" for="billetes_units" class="o_form_label fw-bold"/>
+                            <field name="billetes_units" nolabel="1" class="fw-bold"/>
+                            <field name="billetes_total_eur" nolabel="1" widget="monetary" options="{'currency_field': 'currency_id'}" class="fw-bold"/>
+                        </group>
+                    </group>
+                    <group>
+                        <field name="limit_recycler_check" string="Activar límites de recicladores"/>
+                    </group>
+                    <group>
+                        <div class="text-muted mb-2">
+                            <p class="mb-1">(*) La fianza de esta pieza se regula automáticamente.</p>
+                        </div>
+                    </group>
+                    <group>
+                        <label string="Total" for="grand_total_eur" class="o_form_label fw-bold"/>
+                        <field name="grand_total_eur" widget="monetary" options="{'currency_field': 'currency_id'}" class="fw-bold"/>
+                    </group>
+                </sheet>
                 <footer>
                     <button name="action_execute" string="Aplicar" type="object" class="btn-primary"/>
                     <button string="Cancelar" class="btn-secondary" special="cancel"/>

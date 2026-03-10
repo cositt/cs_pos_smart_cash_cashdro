@@ -1,7 +1,7 @@
 # -*- coding: utf-8 -*-
 {
     "name": "CS POS Smart Cash CashDro",
-    "version": "19.0.1.0.0",
+    "version": "19.0.1.1.0",
     "category": "Sales/Point of Sale",
     "summary": "Integración de máquinas Cashdrop para pagos en POS",
     "description": """

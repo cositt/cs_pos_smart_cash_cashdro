@@ -166,6 +166,86 @@ class CashdroCajaMovimientos(models.TransientModel):
         })
         return True
 
+    @api.model
+    def get_fianza_niveles_from_pieces(self, pieces_resp, config_json=None, full_denom=False):
+        """
+        Extrae nivel de fianza (DepositLevel) por denominación a partir de getPiecesCurrency.
+
+        Basado en la respuesta REAL observada:
+        - Monedas: Type = \"1\", Value en céntimos → 1,2,5,10,20,50,100,200 (0.01..2.00 €)
+        - Billetes: Type = \"2\", Value en céntimos → 500,1000,2000,5000,10000,20000,50000 (5..500 €)
+
+        Para ambos casos solo consideramos denominaciones activas (RecyclerLimit > 0).
+        Si la máquina no devuelve ningún nivel, usamos config_json (setDepositLevels) como fallback.
+        """
+        order_caja = [20, 10, 5, 2.0, 1.0, 0.5, 0.2, 0.1, 0.05]
+        order_denom = [200, 100, 50, 20, 10, 5, 2.0, 1.0, 0.5, 0.2, 0.1, 0.05] if full_denom else order_caja
+        rows_by_val = {v: 0 for v in order_denom}
+
+        if pieces_resp and pieces_resp.get('code') == 1:
+            data = pieces_resp.get('data')
+            if data is None:
+                resp = pieces_resp.get('response') or {}
+                data = resp.get('data') if isinstance(resp, dict) else None
+            if data is not None:
+                if isinstance(data, str):
+                    try:
+                        data = json.loads(data)
+                    except Exception:
+                        data = []
+                if not isinstance(data, list):
+                    data = [data] if isinstance(data, dict) else []
+                for p in data:
+                    if not isinstance(p, dict):
+                        continue
+                    try:
+                        val_raw = p.get('value') or p.get('Value') or 0
+                        typ = str(p.get('Type') or p.get('type') or '')
+                        dep = int(float(p.get('DepositLevel') or p.get('depositLevel') or 0))
+                        rec_limit = int(float(p.get('RecyclerLimit') or 0))
+                        val_int = int(float(val_raw))
+                    except (TypeError, ValueError):
+                        continue
+
+                    if not rec_limit:
+                        # Denominación no operativa: la doc y las respuestas reales muestran RecyclerLimit=0
+                        # para monedas/billetes que la máquina no usa.
+                        continue
+
+                    if typ == '1':
+                        # Monedas: céntimos → euros
+                        val_eur = round(val_int / 100.0, 2)
+                        if val_eur in rows_by_val:
+                            rows_by_val[val_eur] = dep
+                    elif typ == '2':
+                        # Billetes: céntimos → euros (500→5€, 1000→10€, ...)
+                        val_eur = float(val_int) / 100.0
+                        if val_eur in rows_by_val:
+                            rows_by_val[val_eur] = dep
+
+        # Fallback: si TODO está a 0 pero tenemos config_json, usamos esa configuración
+        if config_json and not any(rows_by_val.values()):
+            try:
+                config_data = json.loads(config_json) if isinstance(config_json, str) else (config_json or {})
+                for item in (config_data.get('config') or []):
+                    try:
+                        val_raw = item.get('Value') or item.get('value') or 0
+                        val_int = int(float(val_raw))
+                        typ = str(item.get('Type') or item.get('type') or '1')
+                        dep = int(float(item.get('DepositLevel') or item.get('depositLevel') or 0))
+                    except (TypeError, ValueError):
+                        continue
+                    if typ in ('1', '3') and val_int in (5, 10, 20, 50, 100, 200) and val_int in rows_by_val:
+                        rows_by_val[val_int] = dep
+                    elif typ == '2':
+                        v = round(val_int / 100.0, 2)
+                        if v in rows_by_val:
+                            rows_by_val[v] = dep
+            except (TypeError, json.JSONDecodeError):
+                pass
+
+        return {v: rows_by_val[v] for v in order_denom}
+
     def _build_estado_fianza_from_pieces(self, pieces_resp, levels=None):
         """
         ESTADO DE FIANZA exactamente como en CashDro (primera imagen): Moneda, Nivel fianza, Total Fianza,
@@ -181,6 +261,9 @@ class CashdroCajaMovimientos(models.TransientModel):
         rows_by_val = {v: (0, 0) for v in order_denom}
         if pieces_resp and pieces_resp.get('code') == 1:
             data = pieces_resp.get('data')
+            if data is None:
+                resp = pieces_resp.get('response') or {}
+                data = resp.get('data') if isinstance(resp, dict) else None
             if data is not None:
                 if isinstance(data, str):
                     try:
