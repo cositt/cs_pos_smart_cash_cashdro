@@ -138,9 +138,10 @@ class CashdroMovimientoCargaWizard(models.TransientModel):
     def action_execute(self):
         self.ensure_one()
         gateway = _get_gateway_from_method(self.env, self.payment_method_id.id)
-        # type=16 = INGRESAR genérico (movimientos_funcionan/ingresar_generico.py). index.php, aliasId="", isManual="0"
-        gateway.start_operation_admin(operation_type=16, alias_id='', is_manual='0', parameters='')
-        return self._notify_and_close(_('Carga iniciada. Inserte dinero en la máquina (ingreso genérico).'))
+        # type=16 = INGRESAR genérico (movimientos_funcionan/ingresar_generico.py).
+        # startLoadMoney: startOperation(type=16) + acknowledgeOperationId → máquina entra en modo "cargando".
+        gateway.start_load_money(alias_id='', is_manual='0', parameters='')
+        return self._notify_and_close(_('Carga iniciada. Inserte dinero en la máquina (ingreso genérico, type=16).'))
 
 
 class CashdroMovimientoInicializarWizard(models.TransientModel):
@@ -167,5 +168,7 @@ class CashdroMovimientoInicializarWizard(models.TransientModel):
     def action_execute(self):
         self.ensure_one()
         gateway = _get_gateway_from_method(self.env, self.payment_method_id.id)
-        gateway.start_operation_admin(operation_type=12, alias_id='', is_manual='0', parameters='')
-        return self._notify_and_close(_('Inicializar niveles iniciado. Compruebe el estado en la máquina.'))
+        # Usa el flujo completo de inicialización de niveles (type=12) probado contra la máquina:
+        # startOperation → acknowledge → askOperation → finishOperation.
+        gateway.initialize_levels()
+        return self._notify_and_close(_('Inicializar niveles ejecutado. Consulte Estado de la caja para ver los nuevos niveles.'))

@@ -161,38 +161,81 @@ class CashdroMovimientoFianzaWizard(models.TransientModel):
             'next': {'type': 'ir.actions.act_window_close'},
         }
 
-    def _build_levels_config(self):
+    def _build_levels_config(self, pieces_resp):
+        """
+        Construye el JSON levels EXACTAMENTE como lo hace la web de CashDro:
+        - Partimos de la respuesta real de getPiecesCurrency (pieces_resp['data']).
+        - Para cada pieza copiamos todos los campos relevantes (MinLevel, MaxLevel, Type, IsChargeable, RecyclerLimit).
+        - Solo modificamos DepositLevel según los valores del wizard.
+
+        Mapeo clave (Type, Value) → campo del wizard:
+        - Monedas (Type='1', Value en céntimos):
+            ( '1','5' )   -> deposit_coin_005  (0,05 €)
+            ( '1','10')   -> deposit_coin_010  (0,10 €)
+            ( '1','20')   -> deposit_coin_020  (0,20 €)
+            ( '1','50')   -> deposit_coin_050  (0,50 €)
+            ( '1','100')  -> deposit_coin_1    (1 €)
+            ( '1','200')  -> deposit_coin_2    (2 €)
+        - Billetes (Type='2', Value en céntimos):
+            ( '2','500')  -> deposit_bill_5    (5 €)
+            ( '2','1000') -> deposit_bill_10   (10 €)
+            ( '2','2000') -> deposit_bill_20   (20 €)
+            ( '2','5000') -> deposit_bill_50   (50 €)
+            ( '2','10000')-> deposit_bill_100  (100 €)
+            ( '2','20000')-> deposit_bill_200  (200 €)
+        """
+        overrides = {
+            ('1', '5'): self.deposit_coin_005,
+            ('1', '10'): self.deposit_coin_010,
+            ('1', '20'): self.deposit_coin_020,
+            ('1', '50'): self.deposit_coin_050,
+            ('1', '100'): self.deposit_coin_1,
+            ('1', '200'): self.deposit_coin_2,
+            ('2', '500'): self.deposit_bill_5,
+            ('2', '1000'): self.deposit_bill_10,
+            ('2', '2000'): self.deposit_bill_20,
+            ('2', '5000'): self.deposit_bill_50,
+            ('2', '10000'): self.deposit_bill_100,
+            ('2', '20000'): self.deposit_bill_200,
+        }
+
+        data = pieces_resp.get('data') if isinstance(pieces_resp, dict) else None
+        if data is None:
+            data = []
+        if isinstance(data, str):
+            try:
+                data = json.loads(data)
+            except Exception:
+                data = []
+        if not isinstance(data, list):
+            data = [data] if isinstance(data, dict) else []
+
         config = []
-        for value_eur, level in [
-            (5, self.deposit_bill_5),
-            (10, self.deposit_bill_10),
-            (20, self.deposit_bill_20),
-            (50, self.deposit_bill_50),
-            (100, self.deposit_bill_100),
-            (200, self.deposit_bill_200),
-        ]:
-            if level and level > 0:
-                config.append({
-                    'CurrencyId': 'EUR',
-                    'DepositLevel': str(level),
-                    'Value': str(value_eur),
-                    'Type': '3',
-                })
-        for value_cents, level in [
-            (5, self.deposit_coin_005),
-            (10, self.deposit_coin_010),
-            (20, self.deposit_coin_020),
-            (50, self.deposit_coin_050),
-            (100, self.deposit_coin_1),
-            (200, self.deposit_coin_2),
-        ]:
-            if level and level > 0:
-                config.append({
-                    'CurrencyId': 'EUR',
-                    'DepositLevel': str(level),
-                    'Value': str(value_cents),
-                    'Type': '2',
-                })
+        for p in data:
+            if not isinstance(p, dict):
+                continue
+            typ = str(p.get('Type') or p.get('type') or '')
+            val = str(p.get('Value') or p.get('value') or '')
+            key = (typ, val)
+            # Solo piezas EUR; descartamos otras monedas por robustez
+            currency = p.get('CurrencyId') or p.get('currencyid') or 'EUR'
+            if currency != 'EUR':
+                continue
+            deposit = str(p.get('DepositLevel') or p.get('depositLevel') or '0')
+            if key in overrides and overrides[key] is not None and overrides[key] >= 0:
+                deposit = str(int(overrides[key]))
+            item = {
+                'CurrencyId': currency,
+                'DepositLevel': deposit,
+                'Value': val,
+                'MinLevel': str(p.get('MinLevel') or '0'),
+                'MaxLevel': str(p.get('MaxLevel') or '0'),
+                'Type': typ,
+                'IsChargeable': str(p.get('IsChargeable') or '1'),
+                'RecyclerLimit': str(p.get('RecyclerLimit') or '0'),
+            }
+            config.append(item)
+
         return {
             'limitRecyclerCheck': 1 if self.limit_recycler_check else 0,
             'config': config,
@@ -200,11 +243,16 @@ class CashdroMovimientoFianzaWizard(models.TransientModel):
 
     def action_execute(self):
         self.ensure_one()
-        levels_config = self._build_levels_config()
-        if not levels_config.get('config'):
-            raise UserError(_('Indique al menos un nivel de fianza (unidades) para alguna denominación.'))
         gateway = _fianza_get_gateway(self.env, self.payment_method_id.id)
+        # Leemos piezas reales para construir config completa (igual que la web de CashDro)
+        pieces_resp = gateway.get_pieces_currency()
+        levels_config = self._build_levels_config(pieces_resp)
+        if not levels_config.get('config'):
+            raise UserError(_('No se han podido construir niveles de fianza a partir de getPiecesCurrency.'))
+        # 1) Enviar setDepositLevels con la estructura correcta
         gateway.set_deposit_levels(levels_config)
+        # 2) Lanzar operación administrativa type=36 para aplicar la fianza configurada
+        gateway.apply_deposit_levels()
         self.payment_method_id.sudo().write({
             'cashdro_deposit_levels_json': json.dumps(levels_config),
         })

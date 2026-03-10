@@ -422,6 +422,64 @@ class CashdropGatewayIntegration:
                     _logger.warning("get_consult_levels finish: %s", e2)
         return result, debug_snippet
 
+    def initialize_levels(self, posid='Terminal3', posuser='OdooInit', alias_id='INITLEVELS'):
+        """
+        Inicializa niveles de la máquina (operación administrativa type=12).
+
+        Flujo probado contra la máquina real y descrito en la documentación:
+        - startOperation (type=12) en index3.php
+        - acknowledgeOperationId
+        - askOperation (para forzar la ejecución y loguear el estado)
+        - finishOperation
+        """
+        try:
+            # START type=12 en index3.php
+            params_start = {
+                'operation': 'startOperation',
+                'name': self.user,
+                'password': self.password,
+                'type': 12,
+                'posid': posid,
+                'posuser': posuser,
+                'aliasid': alias_id,
+            }
+            _logger.info("CashDro initialize_levels: startOperation type=12 posid=%s posuser=%s", posid, posuser)
+            import requests as _requests
+            resp = _requests.get(self.endpoint, params=params_start, timeout=self.timeout, verify=self.verify_ssl)
+            resp.raise_for_status()
+            start_data = self._parse_response(resp)
+            operation_id = (start_data.get('response') or {}).get('operation', {}).get('operationId') or start_data.get('data')
+            if not operation_id:
+                _logger.error("initialize_levels: sin operation_id en respuesta %s", start_data)
+                raise UserError(_('No se pudo iniciar la operación de inicializar niveles (type=12).'))
+
+            _logger.info("CashDro initialize_levels: operation_id=%s", operation_id)
+
+            # ACKNOWLEDGE
+            try:
+                self.acknowledge_operation_id(operation_id)
+            except Exception as ack_err:
+                _logger.warning("initialize_levels acknowledge error: %s", ack_err)
+
+            # ASK (solo para registrar estado, no es crítico)
+            try:
+                ask_res = self.ask_operation(operation_id)
+                _logger.debug("initialize_levels askOperation: %s", ask_res)
+            except Exception as ask_err:
+                _logger.warning("initialize_levels askOperation error: %s", ask_err)
+
+            # FINISH
+            try:
+                finish_res = self.finish_operation(operation_id, operation_type=1)
+                _logger.info("CashDro initialize_levels finishOperation code=%s", finish_res.get('code'))
+            except Exception as fin_err:
+                _logger.warning("initialize_levels finishOperation error: %s", fin_err)
+
+            return {'start': start_data}
+        except Exception as e:
+            _logger.exception("initialize_levels error")
+            raise UserError(_('Error inicializando niveles (type=12): %s') % str(e))
+
     def ask_operation_executing_admin(self):
         """Estado global (operación en ejecución). Credenciales Exchange_Machine/-99."""
         try:
@@ -468,6 +526,35 @@ class CashdropGatewayIntegration:
         except Exception as e:
             raise UserError(_('Error startOperation (admin): %s') % str(e))
 
+    def start_load_money(self, alias_id='', is_manual='0', parameters=''):
+        """
+        Carga de dinero (INGRESAR genérico).
+
+        Basado en movimientos_funcionan/ingresar_generico.py y la doc:
+        - startOperation(type=16, isManual=0, startnow=true)
+        - acknowledgeOperationId(operationId)
+        - La máquina entra en modo 'cargando' y espera a que el operario ingrese dinero.
+        No hacemos polling ni finishOperation desde Odoo; se gestionan desde la propia interfaz/máquina.
+        """
+        # START type=16 vía index.php (mismo flujo que start_operation_admin)
+        start_res = self.start_operation_admin(operation_type=16, alias_id=alias_id, is_manual=is_manual, parameters=parameters)
+        operation_id = start_res.get('operation_id')
+        if not operation_id:
+            return start_res
+        # ACKNOWLEDGE vía index.php (POST), como en ingresar_generico.py
+        try:
+            ack_params = {
+                'operation': 'acknowledgeOperationId',
+                'name': self.user,
+                'password': self.password,
+                'operationId': operation_id,
+            }
+            ack_res = self._request_post(ack_params)
+            _logger.info("CashDro start_load_money: acknowledge code=%s", ack_res.get('code'))
+        except Exception as e:
+            _logger.warning("start_load_money acknowledge error: %s", e)
+        return start_res
+
     def set_deposit_levels(self, levels_config):
         """Configura fianza/depósito. levels_config: dict con limitRecyclerCheck y config (lista de niveles)."""
         try:
@@ -480,6 +567,75 @@ class CashdropGatewayIntegration:
             return self._request_post(params)
         except Exception as e:
             raise UserError(_('Error setDepositLevels: %s') % str(e))
+
+    def apply_deposit_levels(self):
+        """
+        Aplica en la máquina la fianza configurada con setDepositLevels.
+        Flujo observado en la web oficial:
+        - startOperation type=36
+        - acknowledgeOperationId
+        - askOperation (opcional, solo para logging)
+        - finishOperation
+        """
+        import time
+        try:
+            # START type=36
+            start_params = {
+                'operation': 'startOperation',
+                'name': self.user,
+                'password': self.password,
+                'type': 36,
+                'aliasId': '',
+                'isManual': '0',
+                'startnow': 'true',
+                'parameters': '',
+            }
+            start_res = self._request_post(start_params)
+            operation_id = start_res.get('data') or (start_res.get('response') or {}).get('operation', {}).get('operationId')
+            _logger.info("CashDro apply_deposit_levels: start type=36 operation_id=%s code=%s", operation_id, start_res.get('code'))
+            if not operation_id:
+                raise UserError(_('No se pudo iniciar operación administrativa type=36 (aplicar fianza).'))
+
+            # ACKNOWLEDGE
+            ack_params = {
+                'operation': 'acknowledgeOperationId',
+                'name': self.user,
+                'password': self.password,
+                'operationId': operation_id,
+            }
+            ack_res = self._request_post(ack_params)
+            _logger.info("CashDro apply_deposit_levels: acknowledge code=%s", ack_res.get('code'))
+
+            # Pequeña espera y ASK (solo para forzar ejecución y para debug)
+            time.sleep(2)
+            ask_params = {
+                'operation': 'askOperation',
+                'name': self.user,
+                'password': self.password,
+                'operationId': operation_id,
+                'includeImages': '0',
+            }
+            ask_res = self._request_post(ask_params)
+            _logger.debug("CashDro apply_deposit_levels: askOperation response keys=%s", list(ask_res.keys()))
+
+            # FINISH (puede devolver code=-2 si ya no está en ejecución; lo consideramos no fatal)
+            finish_params = {
+                'operation': 'finishOperation',
+                'name': self.user,
+                'password': self.password,
+                'operationId': operation_id,
+                'type': 1,
+            }
+            finish_res = self._request_post(finish_params)
+            _logger.info("CashDro apply_deposit_levels: finishOperation code=%s", finish_res.get('code'))
+            return {
+                'start': start_res,
+                'ack': ack_res,
+                'ask': ask_res,
+                'finish': finish_res,
+            }
+        except Exception as e:
+            raise UserError(_('Error aplicando fianza (type=36): %s') % str(e))
 
     def _parse_response(self, response):
         try:
