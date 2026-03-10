@@ -59,27 +59,8 @@ class CashdroCajaMovimientos(models.TransientModel):
             password=self.payment_method_id.cashdro_password,
         )
 
-    def action_refresh(self):
-        """Actualiza estado de la caja: consulta de niveles (monedas/billetes) como en interfaz CashDro."""
-        self.ensure_one()
-        gateway = self._get_gateway()
-        raw = {}
-
-        levels = {'moneda': [], 'billete': []}
-        levels_debug = {}
-        try:
-            levels, levels_debug = gateway.get_consult_levels()
-            raw['levels'] = levels
-            raw['levels_debug'] = levels_debug
-        except Exception as e:
-            raw['levels_error'] = str(e)
-            moneda_denom = [2.0, 1.0, 0.5, 0.2, 0.1, 0.05]
-            billete_denom = [100, 50, 20, 10, 5]
-            levels = {
-                'moneda': [(v, 0, 0.0, 0, 0.0) for v in moneda_denom],
-                'billete': [(v, 0, 0.0, 0, 0.0) for v in billete_denom],
-            }
-
+    def _build_consulta_niveles_html(self, levels):
+        """Genera el HTML de la sección Consulta de niveles (monedas y billetes). levels = {moneda: [...], billete: [...]}."""
         def row_moneda(val_eur, nivel_rec, total_rec, nivel_cas, total_cas):
             css = 'background-color: #f8d7da;' if (nivel_rec == 0 and nivel_cas == 0) else ''
             return '<tr style="%s"><td>%.2f €</td><td>%s</td><td>%.2f €</td><td>%s</td><td>%.2f €</td></tr>' % (
@@ -94,21 +75,18 @@ class CashdroCajaMovimientos(models.TransientModel):
 
         moneda_rows = ''.join(row_moneda(v, nr, tr, nc, tc) for v, nr, tr, nc, tc in levels['moneda'])
         billete_rows = ''.join(row_billete(v, nr, tr, nc, tc) for v, nr, tr, nc, tc in levels['billete'])
-
         sum_moneda_rec = sum(nr for _, nr, _, _, _ in levels['moneda'])
         sum_moneda_cas = sum(nc for _, _, _, nc, _ in levels['moneda'])
         total_rec_moneda = sum(tr for _, _, tr, _, _ in levels['moneda'])
         total_cas_moneda = sum(tc for _, _, _, _, tc in levels['moneda'])
         total_moneda = total_rec_moneda + total_cas_moneda
-
         sum_billete_rec = sum(nr for _, nr, _, _, _ in levels['billete'])
         sum_billete_cas = sum(nc for _, _, _, nc, _ in levels['billete'])
         total_rec_billete = sum(tr for _, _, tr, _, _ in levels['billete'])
         total_cas_billete = sum(tc for _, _, _, _, tc in levels['billete'])
         total_billete = total_rec_billete + total_cas_billete
         total_general = total_moneda + total_billete
-
-        state_html = '''
+        return '''
         <div style="width:100%%; max-width:100%%; box-sizing:border-box;">
             <table class="table table-sm table-bordered" style="width:100%%; table-layout:fixed; margin-bottom:1.5rem;">
                 <caption style="text-align:left; font-weight:bold;">Moneda</caption>
@@ -144,27 +122,165 @@ class CashdroCajaMovimientos(models.TransientModel):
             total_moneda, total_billete, total_general,
         )
 
+    def action_refresh(self):
+        """
+        Despachador: solo ejecuta una u otra según contexto. Nunca ambas en la misma llamada.
+        Vista: Consultar fianza -> context consultar_fianza=1; Consulta niveles -> context consulta_niveles=1.
+        """
+        self.ensure_one()
+        ctx = self.env.context
+        consulta_niveles = ctx.get('consulta_niveles')
+        _logger.info(
+            "CashDro action_refresh: context consulta_niveles=%s consultar_fianza=%s -> %s",
+            consulta_niveles, ctx.get('consultar_fianza'),
+            'consulta_niveles' if consulta_niveles else 'consultar_fianza',
+        )
+        if consulta_niveles:
+            return self.action_consulta_niveles()
+        return self.action_consultar_fianza()
+
+    def action_consultar_fianza(self):
+        """
+        Consulta estado de fianza (getPiecesCurrency con includeLevels=1).
+        Pinta el resultado solo en la pestaña "Estado de fianza".
+        """
+        self.ensure_one()
+        gateway = self._get_gateway()
         try:
             pieces_resp = gateway.get_pieces_currency(currency_id='EUR', include_images='0', include_levels='1')
-            raw['getPiecesCurrency'] = pieces_resp
         except Exception as e:
-            raw['getPiecesCurrency_error'] = str(e)
-            pieces_resp = {}
+            pieces_resp = {'code': 0, 'data': []}
+        levels = self._get_levels_from_pieces(pieces_resp)
         fianza_html = self._build_estado_fianza_from_pieces(pieces_resp, levels)
-
-        try:
-            dev = gateway.get_info_devices()
-            raw['getInfoDevices'] = dev
-        except Exception as e:
-            raw['getInfoDevices_error'] = str(e)
-
+        raw = {}
+        if self.state_raw:
+            try:
+                raw = json.loads(self.state_raw)
+            except (TypeError, json.JSONDecodeError):
+                pass
+        raw['getPiecesCurrency_fianza'] = pieces_resp
+        raw['levels_fianza'] = levels
         self.write({
-            'state_display': state_html,
             'state_fianza': fianza_html,
             'state_raw': json.dumps(raw, indent=2, default=str)[:5000],
             'last_refresh': fields.Datetime.now(),
         })
         return True
+
+    def action_consulta_niveles(self):
+        """
+        Consulta niveles actuales (getPiecesCurrency con includeLevels=1, LevelRecycler/LevelCasete).
+        Pinta el resultado solo en la pestaña "Estado niveles".
+        """
+        self.ensure_one()
+        gateway = self._get_gateway()
+        _logger.info("CashDro action_consulta_niveles: gateway_url=%s", gateway.gateway_url)
+        try:
+            pieces_resp = gateway.get_pieces_currency(currency_id='EUR', include_images='0', include_levels='1')
+        except Exception as e:
+            _logger.warning("CashDro action_consulta_niveles: get_pieces_currency falló -> %s", e)
+            pieces_resp = {'code': 0, 'data': []}
+        code = pieces_resp.get('code')
+        data = pieces_resp.get('data')
+        data_len = len(data) if isinstance(data, list) else 0
+        _logger.info("CashDro action_consulta_niveles: code=%s data_len=%s", code, data_len)
+        levels = self._get_levels_from_pieces(pieces_resp)
+        total_m = sum(t[2] + t[4] for t in levels['moneda'])
+        total_b = sum(t[2] + t[4] for t in levels['billete'])
+        _logger.info("CashDro action_consulta_niveles: levels total_moneda=%.2f total_billete=%.2f", total_m, total_b)
+        state_html = self._build_consulta_niveles_html(levels)
+        raw = {}
+        if self.state_raw:
+            try:
+                raw = json.loads(self.state_raw)
+            except (TypeError, json.JSONDecodeError):
+                pass
+        raw['getPiecesCurrency_niveles'] = pieces_resp
+        raw['levels'] = levels
+        self.write({
+            'state_display': state_html,
+            'state_raw': json.dumps(raw, indent=2, default=str)[:5000],
+            'last_refresh': fields.Datetime.now(),
+        })
+        return True
+
+    @api.model
+    def _get_levels_from_pieces(self, pieces_resp):
+        """
+        Construye niveles de reciclador/casete por denominación a partir de getPiecesCurrency (LevelRecycler/LevelCasete).
+
+        Estructura devuelta:
+        levels = {
+            'moneda': [(valor_eur, nivel_rec, total_rec, nivel_cas, total_cas), ...],
+            'billete': [(valor_eur, nivel_rec, total_rec, nivel_cas, total_cas), ...],
+        }
+        """
+        moneda_denom = [2.0, 1.0, 0.5, 0.2, 0.1, 0.05]
+        billete_denom = [100, 50, 20, 10, 5]
+        levels = {
+            'moneda': [(v, 0, 0.0, 0, 0.0) for v in moneda_denom],
+            'billete': [(v, 0, 0.0, 0, 0.0) for v in billete_denom],
+        }
+
+        if not pieces_resp or pieces_resp.get('code') != 1:
+            _logger.info("CashDro _get_levels_from_pieces: devolviendo ceros (code=%s)", pieces_resp.get('code') if pieces_resp else None)
+            return levels
+
+        data = pieces_resp.get('data')
+        if data is None:
+            resp = pieces_resp.get('response') or {}
+            data = resp.get('data') if isinstance(resp, dict) else None
+        if data is None:
+            data = (pieces_resp.get('response') or {}).get('operation') or {}
+            data = data.get('pieces') if isinstance(data, dict) else None
+        if data is None:
+            _logger.info("CashDro _get_levels_from_pieces: no hay data ni response.operation.pieces -> ceros")
+            return levels
+
+        if isinstance(data, str):
+            try:
+                data = json.loads(data)
+            except Exception:
+                data = []
+        if not isinstance(data, list):
+            data = [data] if isinstance(data, dict) else []
+
+        _logger.info("CashDro _get_levels_from_pieces: procesando %s piezas", len(data))
+        for p in data:
+            if not isinstance(p, dict):
+                continue
+            try:
+                val_raw = p.get('value') or p.get('Value') or 0
+                typ = str(p.get('Type') or p.get('type') or '')
+                rec_limit = int(float(p.get('RecyclerLimit') or 0))
+                rec = int(float(p.get('LevelRecycler') or p.get('levelRecycler') or 0))
+                cas = int(float(p.get('LevelCasete') or p.get('levelCasete') or 0))
+                val_int = int(float(val_raw))
+            except (TypeError, ValueError):
+                continue
+
+            # Solo denominaciones operativas (RecyclerLimit > 0)
+            if not rec_limit:
+                continue
+
+            if typ == '1':
+                # Monedas: céntimos → euros (1,2,5,10,20,50,100,200 → 0.01..2.00 €)
+                val_eur = round(val_int / 100.0, 2)
+                if val_eur in moneda_denom:
+                    idx = moneda_denom.index(val_eur)
+                    total_rec = rec * val_eur
+                    total_cas = cas * val_eur
+                    levels['moneda'][idx] = (val_eur, rec, total_rec, cas, total_cas)
+            elif typ == '2':
+                # Billetes: céntimos → euros (500→5€, 1000→10€, 2000→20€, 5000→50€, 10000→100€, 20000→200€)
+                val_eur = float(val_int) / 100.0
+                if val_eur in billete_denom:
+                    idx = billete_denom.index(val_eur)
+                    total_rec = rec * val_eur
+                    total_cas = cas * val_eur
+                    levels['billete'][idx] = (val_eur, rec, total_rec, cas, total_cas)
+
+        return levels
 
     @api.model
     def get_fianza_niveles_from_pieces(self, pieces_resp, config_json=None, full_denom=False):
@@ -248,51 +364,27 @@ class CashdroCajaMovimientos(models.TransientModel):
 
     def _build_estado_fianza_from_pieces(self, pieces_resp, levels=None):
         """
-        ESTADO DE FIANZA exactamente como en CashDro (primera imagen): Moneda, Nivel fianza, Total Fianza,
+        ESTADO DE FIANZA exactamente como en CashDro (primera imagen): Denominación, Nivel fianza, Total Fianza,
         Niv. reciclador, Total reciclador, Niv. faltante, Total faltante.
         - Nivel fianza: DepositLevel de getPiecesCurrency o de config guardada (setDepositLevels).
         - Nivel reciclador: real desde levels (consulta type=12) para que coincida con la máquina.
-        - Orden: 20€, 10€, 5€, 2.00€, 1.00€, 0.50€, 0.20€, 0.10€, 0.05€. Celdas Niv. reciclador=0 en rojo.
+        - Orden: 200€, 100€, 50€, 20€, 10€, 5€, 2.00€, 1.00€, 0.50€, 0.20€, 0.10€, 0.05€. Celdas Niv. reciclador=0 en rojo.
         """
         default_msg = (
             '<p>Pulsa <strong>Actualizar estado</strong> para cargar el estado de fianza (getPiecesCurrency).</p>'
         )
-        order_denom = [20, 10, 5, 2.0, 1.0, 0.5, 0.2, 0.1, 0.05]
-        rows_by_val = {v: (0, 0) for v in order_denom}
-        if pieces_resp and pieces_resp.get('code') == 1:
-            data = pieces_resp.get('data')
-            if data is None:
-                resp = pieces_resp.get('response') or {}
-                data = resp.get('data') if isinstance(resp, dict) else None
-            if data is not None:
-                if isinstance(data, str):
-                    try:
-                        data = json.loads(data)
-                    except Exception:
-                        data = []
-                if not isinstance(data, list):
-                    data = [data] if isinstance(data, dict) else []
-                for p in data:
-                    if not isinstance(p, dict):
-                        continue
-                    try:
-                        val_raw = p.get('value') or p.get('Value') or 0
-                        val_num = float(val_raw)
-                        typ = str(p.get('Type') or p.get('type') or '')
-                        nf = int(float(p.get('DepositLevel') or p.get('depositLevel') or 0))
-                        nr = int(float(p.get('unitsInRecycler') or p.get('unitsinrecycler') or p.get('finishlevelrecycler') or p.get('FinishLevelRecycler') or 0))
-                    except (TypeError, ValueError):
-                        continue
-                    val_eur = None
-                    if val_num <= 200:
-                        if val_num in (5, 10, 20, 50, 100, 200):
-                            val_eur = round(val_num / 100.0, 2)
-                            if val_eur in (2.0, 1.0, 0.5, 0.2, 0.1, 0.05):
-                                rows_by_val[val_eur] = (nf, nr)
-                    elif val_num >= 500:
-                        val_eur = val_num / 100.0
-                        if val_eur in (5.0, 10.0, 20.0, 50.0, 100.0):
-                            rows_by_val[val_eur] = (nf, nr)
+        # Incluimos todas las denominaciones de billete/moneda que maneja la máquina.
+        order_denom = [200, 100, 50, 20, 10, 5, 2.0, 1.0, 0.5, 0.2, 0.1, 0.05]
+        method = self.payment_method_id
+        config_json = method.cashdro_deposit_levels_json if method else None
+
+        # Reutilizamos la misma lógica unificada que el wizard de fianza para obtener niveles actuales.
+        nf_by_val = self.get_fianza_niveles_from_pieces(
+            pieces_resp,
+            config_json=config_json,
+            full_denom=True,
+        )
+        rows_by_val = {v: (nf_by_val.get(v, 0), 0) for v in order_denom}
         if levels:
             for v in order_denom:
                 nf, _ = rows_by_val.get(v, (0, 0))
@@ -301,29 +393,6 @@ class CashdroCajaMovimientos(models.TransientModel):
                     rec_data = next((x for x in levels.get('moneda', []) if abs(x[0] - v) < 0.01), None)
                 nr = rec_data[1] if rec_data else 0
                 rows_by_val[v] = (nf, nr)
-        method = self.payment_method_id
-        if method and method.cashdro_deposit_levels_json and not any(rows_by_val[v][0] for v in order_denom):
-            try:
-                config_data = json.loads(method.cashdro_deposit_levels_json)
-                for item in (config_data.get('config') or []):
-                    try:
-                        val_raw = item.get('Value') or item.get('value') or 0
-                        val_int = int(float(val_raw))
-                        typ = str(item.get('Type') or item.get('type') or '1')
-                        dep = int(float(item.get('DepositLevel') or item.get('depositLevel') or 0))
-                    except (TypeError, ValueError):
-                        continue
-                    if typ in ('1', '3') and val_int in (100, 50, 20, 10, 5):
-                        if val_int in rows_by_val:
-                            nr = rows_by_val[val_int][1]
-                            rows_by_val[val_int] = (dep, nr)
-                    elif typ == '2':
-                        v = round(val_int / 100.0, 2)
-                        if v in (2.0, 1.0, 0.5, 0.2, 0.1, 0.05) and v in rows_by_val:
-                            nr = rows_by_val[v][1]
-                            rows_by_val[v] = (dep, nr)
-            except (TypeError, json.JSONDecodeError):
-                pass
         rows = []
         total_fianza = total_rec = total_faltante = 0.0
         for v in order_denom:
@@ -352,7 +421,7 @@ class CashdroCajaMovimientos(models.TransientModel):
         <p style="margin-bottom:0.5rem;">Estado de fianza (getPiecesCurrency).</p>
         <table class="table table-sm table-bordered" style="width:100%%; table-layout:fixed;">
             <thead><tr>
-                <th>Moneda</th>
+                <th>Denominación</th>
                 <th>Nivel fianza</th>
                 <th>Total Fianza</th>
                 <th>Niv. reciclador</th>
@@ -473,16 +542,40 @@ class CashdroCajaMovimientos(models.TransientModel):
         return html
 
     def action_pago(self):
-        """Abre wizard de pago (cobro)."""
-        return self._open_wizard('cashdro.movimiento.pago.wizard', _('Pago (cobro)'))
+        """Abre wizard de venta (cobro)."""
+        return self._open_wizard('cashdro.movimiento.pago.wizard', _('Venta'))
 
     def action_devolucion(self):
-        """Abre wizard de devolución."""
-        return self._open_wizard('cashdro.movimiento.devolucion.wizard', _('Devolución'))
+        """Abre wizard de pago (devolución/dispensa)."""
+        return self._open_wizard('cashdro.movimiento.devolucion.wizard', _('Pago'))
+
+    def action_ingresar(self):
+        """Abre wizard de ingresar (carga de dinero)."""
+        return self._open_wizard('cashdro.movimiento.carga.wizard', _('Ingresar'))
+
+    def action_ingreso_importe(self):
+        """Abre wizard de ingresar por importe (type=17)."""
+        return self._open_wizard('cashdro.movimiento.ingreso.importe.wizard', _('Ingresar por importe'))
 
     def action_carga(self):
-        """Abre wizard de carga de dinero."""
-        return self._open_wizard('cashdro.movimiento.carga.wizard', _('Carga de dinero'))
+        """Abre wizard de Carga (type=1): pantalla de carga hasta Aceptar, luego finalizar e importar."""
+        return self._open_wizard('cashdro.movimiento.carga.operacion.wizard', _('Carga'))
+
+    def action_retirada(self):
+        """Abre wizard de Retirada (type=2): completar el proceso en la máquina y aceptar."""
+        return self._open_wizard('cashdro.movimiento.retirada.wizard', _('Retirada'))
+
+    def action_retirada_casete_monedas(self):
+        """Abre wizard de Retirada de casete de monedas (type=11)."""
+        return self._open_wizard('cashdro.movimiento.retirada.casete.monedas.wizard', _('Retirada de casete de monedas'))
+
+    def action_retirada_casete_billetes(self):
+        """Abre wizard de Retirada de casete de billetes (type=10)."""
+        return self._open_wizard('cashdro.movimiento.retirada.casete.billetes.wizard', _('Retirada de casete de billetes'))
+
+    def action_cambio(self):
+        """Abre wizard de Cambio (type=18, doc 5.4)."""
+        return self._open_wizard('cashdro.movimiento.cambio.wizard', _('Cambio'))
 
     def action_inicializar_niveles(self):
         """Abre wizard de inicializar niveles."""

@@ -555,6 +555,230 @@ class CashdropGatewayIntegration:
             _logger.warning("start_load_money acknowledge error: %s", e)
         return start_res
 
+    def start_carga(self, alias_id=''):
+        """
+        Carga (doc 5.7): startOperation type=1 sin importe, acknowledge.
+        La máquina permanece en pantalla de carga hasta que se llame a finish_operation + set_operation_imported.
+        """
+        self.login(self.user, self.password)
+        params = {
+            'operation': 'startOperation',
+            'name': self.user,
+            'password': self.password,
+            'type': 1,
+            'posid': self.posid,
+            'posuser': self.posuser,
+            'startnow': 'true',
+        }
+        if alias_id:
+            params['aliasid'] = alias_id
+        _logger.info("CashDro start_carga: endpoint=%s type=1", self.endpoint)
+        response = requests.get(
+            self.endpoint, params=params, timeout=self.timeout, verify=self.verify_ssl
+        )
+        response.raise_for_status()
+        data = self._parse_response(response)
+        operation_id = None
+        if data.get('code') == 1:
+            resp = data.get('response', {}) or {}
+            operation_id = (resp.get('operation') or {}).get('operationId')
+            if not operation_id and data.get('data'):
+                operation_id = data.get('data')
+        if not operation_id:
+            raise ValueError(data.get('response', {}).get('errorMessage') or 'No operationId')
+        try:
+            self.acknowledge_operation_id(operation_id)
+        except Exception as e:
+            _logger.warning("start_carga acknowledge: %s", e)
+        return {'code': 1, 'operation_id': operation_id}
+
+    def start_cambio(self, alias_id=''):
+        """
+        Cambio (doc 5.4): startOperation type=18 sin importe, acknowledge.
+        La gestión del cambio (importe introducido/devuelto) se realiza desde la interfaz web (pantalla splash).
+        """
+        self.login(self.user, self.password)
+        params = {
+            'operation': 'startOperation',
+            'name': self.user,
+            'password': self.password,
+            'type': 18,
+            'posid': self.posid,
+            'posuser': self.posuser,
+            'startnow': 'true',
+        }
+        if alias_id:
+            params['aliasid'] = alias_id
+        _logger.info("CashDro start_cambio: endpoint=%s type=18", self.endpoint)
+        response = requests.get(
+            self.endpoint, params=params, timeout=self.timeout, verify=self.verify_ssl
+        )
+        response.raise_for_status()
+        data = self._parse_response(response)
+        operation_id = None
+        if data.get('code') == 1:
+            resp = data.get('response', {}) or {}
+            operation_id = (resp.get('operation') or {}).get('operationId')
+            if not operation_id and data.get('data'):
+                operation_id = data.get('data')
+        if not operation_id:
+            raise ValueError(data.get('response', {}).get('errorMessage') or 'No operationId')
+        try:
+            self.acknowledge_operation_id(operation_id)
+        except Exception as e:
+            _logger.warning("start_cambio acknowledge: %s", e)
+        return {'code': 1, 'operation_id': operation_id}
+    def start_retirada(self, alias_id=''):
+        """
+        Retirada (doc 5.8): startOperation type=2 sin importe, acknowledge.
+        La máquina muestra la pantalla de retirada; completar el proceso y aceptar en la máquina.
+        """
+        self.login(self.user, self.password)
+        params = {
+            'operation': 'startOperation',
+            'name': self.user,
+            'password': self.password,
+            'type': 2,
+            'posid': self.posid,
+            'posuser': self.posuser,
+            'startnow': 'true',
+        }
+        if alias_id:
+            params['aliasid'] = alias_id
+        _logger.info("CashDro start_retirada: endpoint=%s type=2", self.endpoint)
+        response = requests.get(
+            self.endpoint, params=params, timeout=self.timeout, verify=self.verify_ssl
+        )
+        response.raise_for_status()
+        data = self._parse_response(response)
+        operation_id = None
+        if data.get('code') == 1:
+            resp = data.get('response', {}) or {}
+            operation_id = (resp.get('operation') or {}).get('operationId')
+            if not operation_id and data.get('data'):
+                operation_id = data.get('data')
+        if not operation_id:
+            raise ValueError(data.get('response', {}).get('errorMessage') or 'No operationId')
+        try:
+            self.acknowledge_operation_id(operation_id)
+        except Exception as e:
+            _logger.warning("start_retirada acknowledge: %s", e)
+        return {'code': 1, 'operation_id': operation_id}
+
+    def start_retirada_casete_monedas(self, alias_id=''):
+        """
+        Retirada casete de monedas (doc 5.13): startOperation type=11, acknowledge.
+        El software registra que el dinero del casete ha sido retirado; completar en la máquina.
+        """
+        self.login(self.user, self.password)
+        params = {
+            'operation': 'startOperation',
+            'name': self.user,
+            'password': self.password,
+            'type': 11,
+            'posid': self.posid,
+            'posuser': self.posuser,
+            'startnow': 'true',
+        }
+        if alias_id:
+            params['aliasid'] = alias_id
+        _logger.info("CashDro start_retirada_casete_monedas: endpoint=%s type=11", self.endpoint)
+        response = requests.get(
+            self.endpoint, params=params, timeout=self.timeout, verify=self.verify_ssl
+        )
+        response.raise_for_status()
+        data = self._parse_response(response)
+        operation_id = None
+        if data.get('code') == 1:
+            resp = data.get('response', {}) or {}
+            operation_id = (resp.get('operation') or {}).get('operationId')
+            if not operation_id and data.get('data'):
+                operation_id = data.get('data')
+        if not operation_id:
+            raise ValueError(data.get('response', {}).get('errorMessage') or 'No operationId')
+        try:
+            self.acknowledge_operation_id(operation_id)
+        except Exception as e:
+            _logger.warning("start_retirada_casete_monedas acknowledge: %s", e)
+        return {'code': 1, 'operation_id': operation_id}
+
+    def start_retirada_casete_billetes(self, alias_id=''):
+        """
+        Retirada casete de billetes (doc 5.12): startOperation type=10, acknowledge.
+        Completar en la máquina y aceptar.
+        """
+        self.login(self.user, self.password)
+        params = {
+            'operation': 'startOperation',
+            'name': self.user,
+            'password': self.password,
+            'type': 10,
+            'posid': self.posid,
+            'posuser': self.posuser,
+            'startnow': 'true',
+        }
+        if alias_id:
+            params['aliasid'] = alias_id
+        _logger.info("CashDro start_retirada_casete_billetes: endpoint=%s type=10", self.endpoint)
+        response = requests.get(
+            self.endpoint, params=params, timeout=self.timeout, verify=self.verify_ssl
+        )
+        response.raise_for_status()
+        data = self._parse_response(response)
+        operation_id = None
+        if data.get('code') == 1:
+            resp = data.get('response', {}) or {}
+            operation_id = (resp.get('operation') or {}).get('operationId')
+            if not operation_id and data.get('data'):
+                operation_id = data.get('data')
+        if not operation_id:
+            raise ValueError(data.get('response', {}).get('errorMessage') or 'No operationId')
+        try:
+            self.acknowledge_operation_id(operation_id)
+        except Exception as e:
+            _logger.warning("start_retirada_casete_billetes acknowledge: %s", e)
+        return {'code': 1, 'operation_id': operation_id}
+
+    def get_retirada_web_url(self, operation_id):
+        """
+        URL de la interfaz web para indicar las piezas a retirar (doc 5.8.3).
+        Obligatorio en retirada: sin abrir esta pantalla la máquina puede quedarse en "Retirando...".
+        """
+        from urllib.parse import urlencode
+        params = urlencode({'username': self.user, 'password': self.password})
+        base = self.gateway_url.rstrip('/')
+        return f"{base}/Cashdro3Web/#/unload/{operation_id}/true/?{params}"
+
+    def get_cambio_web_url(self, operation_id=None):
+        """
+        URL de la interfaz web para gestionar la transacción de cambio (doc 5.4.3).
+        Doc: https://<ip>/Cashdro3Web/index.html#/splash/true
+        Si la web acepta operationId en la ruta (como retirada con unload), se usa para mostrar la operación.
+        """
+        base = self.gateway_url.rstrip('/')
+        if operation_id:
+            return f"{base}/Cashdro3Web/index.html#/splash/{operation_id}/true"
+        return f"{base}/Cashdro3Web/index.html#/splash/true"
+
+    def set_operation_imported(self, operation_id):
+        """Indica al CashDro que la transacción ha sido recibida y procesada por el Host (doc 5.7.6)."""
+        try:
+            params = {
+                'operation': 'setOperationImported',
+                'name': self.user,
+                'password': self.password,
+                'operationId': operation_id,
+            }
+            response = requests.get(
+                self.endpoint, params=params, timeout=self.timeout, verify=self.verify_ssl
+            )
+            response.raise_for_status()
+            data = self._parse_response(response)
+            _logger.info("CashDro setOperationImported: operation_id=%s code=%s", operation_id, data.get('code'))
+            return data
+        except Exception as e:
+            raise UserError(_('Error setOperationImported: %s') % str(e))
+
     def set_deposit_levels(self, levels_config):
         """Configura fianza/depósito. levels_config: dict con limitRecyclerCheck y config (lista de niveles)."""
         try:
