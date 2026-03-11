@@ -187,54 +187,28 @@ class CashdropPaymentController(http.Controller):
     # ENDPOINT 3: CANCELAR PAGO
     # ========================
     
-    @http.route('/cashdro/payment/cancel', auth='public', type='http', methods=['POST'], csrf=False)
-    def cancel_payment(self, **kwargs):
+    @http.route('/cashdro/payment/cancel', auth='public', type='json', csrf=False)
+    def cancel_payment(self, transaction_id=None, operation_id=None, **kwargs):
         """
-        Endpoint para cancelar pago
-        
-        Request JSON:
-        {
-            "transaction_id": "uuid" OR "operation_id": "12345",
-            "payment_method_id": 456 (optional)
-        }
-        
-        Response JSON:
-        {
-            "success": true,
-            "transaction_id": "uuid",
-            "message": "Pago cancelado"
-        }
+        Cancelar pago (type='json' para rpc() desde el frontend del kiosk).
         """
+        data = {'transaction_id': transaction_id or kwargs.get('transaction_id'), 'operation_id': operation_id or kwargs.get('operation_id')}
+        transaction = self._get_transaction(data)
+        if not transaction:
+            return {'success': False, 'error': 'Transacción no encontrada'}
         try:
-            try:
-                data = json.loads(http.request.httprequest.data)
-            except (json.JSONDecodeError, ValueError):
-                return self._error_response('Request JSON inválido', 400)
-            
-            # Buscar transacción
-            transaction = self._get_transaction(data)
-            if not transaction:
-                return self._error_response('Transacción no encontrada', 404)
-            
-            # Inicializar integración
             integration = PaymentMethodIntegration(
                 http.request.env,
                 payment_method_id=transaction.payment_method_id.id
             )
-            
-            # Cancelar pago
             result = integration.cancel_payment(transaction)
-            
-            _logger.info(f"Payment cancelled: transaction_id={result['transaction_id']}")
-            return self._success_response(result)
-        
+            _logger.info("Payment cancelled: transaction_id=%s", result.get('transaction_id'))
+            return {'success': True, 'transaction_id': result.get('transaction_id'), 'message': result.get('message')}
         except UserError as e:
-            _logger.warning(f"Payment cancel error: {e}")
-            return self._error_response(str(e), 400)
-        
+            return {'success': False, 'error': str(e)}
         except Exception as e:
-            _logger.error(f"Payment cancel exception: {e}", exc_info=True)
-            return self._error_response(_('Error interno del servidor'), 500)
+            _logger.exception("Payment cancel exception")
+            return {'success': False, 'error': str(e)}
     
     # ========================
     # ENDPOINT 4: OBTENER ESTADO
@@ -422,67 +396,103 @@ class CashdropPaymentController(http.Controller):
         )
 
     # ========================
-    # ENDPOINT: CONFIRMAR PAGO EN KIOSK
+    # KIOSK: INICIAR PAGO CASHDRO (fallback cuando el backend no devuelve payment_status)
     # ========================
 
-    @http.route('/cashdro/payment/kiosk/confirm', auth='public', type='http', methods=['POST'], csrf=False)
-    def kiosk_payment_confirm(self, **kwargs):
+    @http.route('/cashdro/payment/kiosk/start', auth='public', type='json', csrf=False)
+    def kiosk_payment_start(self, order_id=None, payment_method_id=None, amount=None, **kwargs):
         """
-        Confirmar pago en kiosk después de que Cashdrop procesa.
-        El frontend llama aquí cuando el cliente toca "Confirmar pago";
-        se confirma la transacción y se tramita la orden (action_pos_order_paid).
-
-        Request JSON: {"transaction_id": "uuid", "order_id": 123}
-        Response: {"success": true, "message": "...", "order_id": 123}
+        Iniciar pago CashDro desde el kiosk cuando el flujo estándar no devuelve payment_status.
+        Crea la transacción, inicia el pago en la máquina y devuelve payment_status para mostrar el diálogo.
         """
+        order_id = order_id or kwargs.get('order_id')
+        payment_method_id = payment_method_id or kwargs.get('payment_method_id')
+        amount = amount or kwargs.get('amount')
+        if not order_id or not payment_method_id:
+            return {'success': False, 'error': 'Faltan order_id o payment_method_id'}
+        env = http.request.env
+        order = env['pos.order'].sudo().browse(int(order_id))
+        if not order.exists():
+            return {'success': False, 'error': 'Orden no encontrada'}
+        pm = env['pos.payment.method'].sudo().browse(int(payment_method_id))
+        if not pm.exists() or not getattr(pm, 'cashdro_enabled', False):
+            return {'success': False, 'error': 'Método de pago no es CashDro'}
+        amount_val = float(amount) if amount is not None else order.amount_total
+        if amount_val <= 0:
+            return {'success': False, 'error': 'Importe no válido'}
         try:
-            try:
-                data = json.loads(http.request.httprequest.data)
-            except (json.JSONDecodeError, ValueError):
-                return self._error_response('Request JSON inválido', 400)
-            transaction_id = data.get('transaction_id')
-            order_id = data.get('order_id')
-
-            if not transaction_id or not order_id:
-                return self._error_response(
-                    'Parámetros faltantes: transaction_id, order_id', 400
-                )
-
-            transaction_model = http.request.env['cashdro.transaction']
-            transaction = transaction_model.get_by_transaction_id(transaction_id)
-            if not transaction:
-                return self._error_response('Transacción no encontrada', 404)
-
             integration = PaymentMethodIntegration(
-                http.request.env,
-                payment_method_id=transaction.payment_method_id.id
+                env,
+                payment_method_id=pm.id
             )
-
-            try:
-                result = integration.confirm_payment(transaction)
-            except UserError as e:
-                return self._error_response(str(e), 400)
-
+            validation = integration.validate_configuration()
+            if not validation['valid']:
+                return {'success': False, 'error': '; '.join(validation['errors'])}
+            transaction = integration.create_transaction(
+                pos_order_id=order.id,
+                amount=amount_val,
+                user_id=env.user.id,
+                pos_session_id=order.session_id.id if order.session_id else None,
+            )
+            result = integration.start_payment(transaction, user_credentials=None)
             if not result.get('success'):
-                return self._error_response(
-                    result.get('error', 'Error al confirmar pago en Cashdrop'),
-                    400
-                )
-
-            order = http.request.env['pos.order'].browse(order_id)
-            if not order.exists():
-                return self._error_response('Orden no encontrada', 404)
-
-            order.action_pos_order_paid()
-            _logger.info(
-                "Kiosk payment confirmed and order sent to kitchen: order_id=%s",
-                order_id
-            )
-            return self._success_response({
-                'message': 'Pago confirmado, orden enviada a cocina',
-                'order_id': order.id
-            })
-
+                return {'success': False, 'error': result.get('error', 'Error al iniciar pago')}
+            return {
+                'success': True,
+                'payment_status': {
+                    'status': 'pending',
+                    'is_cashdrop': True,
+                    'transaction_id': transaction.transaction_id,
+                    'operation_id': result.get('operation_id'),
+                    'message': _('Esperando confirmación de pago en Cashdrop...'),
+                },
+                'order': {'id': order.id},
+            }
+        except UserError as e:
+            return {'success': False, 'error': str(e)}
         except Exception as e:
-            _logger.error("Kiosk payment confirm error: %s", e, exc_info=True)
-            return self._error_response(str(e), 500)
+            _logger.exception("Kiosk payment start error")
+            return {'success': False, 'error': str(e)}
+
+    # ========================
+    # ENDPOINT: CONFIRMAR PAGO EN KIOSK (type='json' para rpc() del frontend)
+    # ========================
+
+    @http.route('/cashdro/payment/kiosk/confirm', auth='public', type='json', csrf=False)
+    def kiosk_payment_confirm_json(self, transaction_id=None, order_id=None, **kwargs):
+        """
+        Confirmar pago en kiosk (llamado por rpc() desde el frontend).
+        Se confirma la transacción y se tramita la orden (action_pos_order_paid).
+        """
+        transaction_id = transaction_id or kwargs.get('transaction_id')
+        order_id = order_id or kwargs.get('order_id')
+        if not transaction_id or not order_id:
+            return {'success': False, 'error': 'Parámetros faltantes: transaction_id, order_id'}
+
+        transaction_model = http.request.env['cashdro.transaction'].sudo()
+        transaction = transaction_model.search([('transaction_id', '=', transaction_id)], limit=1)
+        if not transaction:
+            return {'success': False, 'error': 'Transacción no encontrada'}
+
+        integration = PaymentMethodIntegration(
+            http.request.env,
+            payment_method_id=transaction.payment_method_id.id
+        )
+        try:
+            result = integration.confirm_payment(transaction)
+        except UserError as e:
+            return {'success': False, 'error': str(e)}
+        if not result.get('success'):
+            return {'success': False, 'error': result.get('error', 'Error al confirmar pago en Cashdrop')}
+
+        order = http.request.env['pos.order'].sudo().browse(int(order_id))
+        if not order.exists():
+            return {'success': False, 'error': 'Orden no encontrada'}
+        order.action_pos_order_paid()
+        _logger.info("Kiosk payment confirmed and order sent to kitchen: order_id=%s", order_id)
+        return {
+            'success': True,
+            'message': _('Pago confirmado, orden enviada a cocina'),
+            'order_id': order.id,
+        }
+

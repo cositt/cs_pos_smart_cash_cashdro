@@ -4,6 +4,7 @@
 
 from odoo import fields, models, api, _
 from odoo.exceptions import ValidationError
+from odoo.fields import Domain
 import requests
 import logging
 
@@ -77,6 +78,43 @@ class PosPaymentMethod(models.Model):
         help='JSON de la última configuración enviada con Configurar fianza (setDepositLevels). '
              'Se usa para mostrar Estado de fianza: Nivel fianza, reciclador y faltante.'
     )
+
+    # ========================
+    # is_cash_count: no contar como efectivo en quiosco
+    # ========================
+    # El core pos_self_order bloquea métodos con is_cash_count en modo quiosco.
+    # Para "Efectivo cashdro" no hay casilla en la UI (is_cash_count es computado por type=='cash').
+    # Override: si cashdro_enabled, is_cash_count=False para que el constraint no bloquee.
+    @api.depends('type', 'cashdro_enabled')
+    def _compute_is_cash_count(self):
+        for pm in self:
+            if getattr(pm, 'cashdro_enabled', False):
+                pm.is_cash_count = False
+            else:
+                pm.is_cash_count = pm.type == 'cash'
+
+    # ========================
+    # CARGA DE DATOS EN QUIOSCO (pos_self_order)
+    # ========================
+    # El core pos_self_order devuelve dominio vacío [('id', '=', False)] para métodos de pago,
+    # así el kiosk no recibe ninguno y la orden se confirma sin pasar por caja. Aquí enviamos
+    # explícitamente TODOS los métodos de pago del POS en modo quiosco (incluido Efectivo cashdro),
+    # y dejamos el dominio original para el resto de modos (móvil, consulta).
+    @api.model
+    def _load_pos_self_data_domain(self, data, config):
+        if config.self_ordering_mode == "kiosk":
+            # En kiosk: devolver exactamente los métodos de pago configurados en el POS.
+            return [("id", "in", config.payment_method_ids.ids)]
+        # Otros modos: respetar el comportamiento estándar de pos_self_order.
+        return super()._load_pos_self_data_domain(data, config)
+
+    @api.model
+    def _load_pos_self_data_fields(self, config):
+        fields = super()._load_pos_self_data_fields(config)
+        if config.self_ordering_mode == "kiosk":
+            if "cashdro_enabled" not in fields:
+                fields = list(fields) + ["cashdro_enabled"]
+        return fields
 
     # ========================
     # VALIDACIONES
@@ -225,11 +263,11 @@ class PosPaymentMethod(models.Model):
     def _payment_request_from_kiosk(self, order):
         """
         Override: Procesar pago Cashdrop en kiosk.
-        Si es Cashdrop (Efectivisimo): inicia el pago y devuelve status 'pending' (no tramitar orden aún).
+        Si es un método CashDro: inicia el pago y devuelve status 'pending' (no tramitar orden aún).
         Si es otro método: devuelve success para flujo normal.
         """
-        # No es Cashdrop: flujo normal
-        if self.name != 'Efectivisimo' or not self.journal_id or self.journal_id.name != 'CajaCashdro':
+        # No es CashDro (no está habilitado): flujo normal
+        if not getattr(self, "cashdro_enabled", False):
             return {
                 'payment_method': self.name,
                 'status': 'success',

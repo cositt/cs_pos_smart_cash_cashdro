@@ -46,9 +46,11 @@ _apply_xml_import_patch()
 from . import models
 from . import controllers
 
-
 def post_init_hook(cr, registry):
-    """Crear permisos ir.model.access para modelos Movimientos (evita XML con RelaxNG conflictivo)."""
+    """
+    Crear permisos ir.model.access para modelos Movimientos (evita XML con RelaxNG conflictivo)
+    y parchear constraints de pos_self_order para permitir CashDro en kiosk.
+    """
     from odoo import api, SUPERUSER_ID
 
     env = api.Environment(cr, SUPERUSER_ID, {})
@@ -82,6 +84,30 @@ def post_init_hook(cr, registry):
                 "perm_create": True,
                 "perm_unlink": True,
             })
+
+    # --- Plan B: eliminar constraint original de pos_self_order que bloquea TODO efectivo ---
+    # Trabajamos sobre la clase final de pos.config que usa el registry.
+    PosConfig = env["pos.config"].__class__
+    if hasattr(PosConfig, "_constrains"):
+        new_constrains = {}
+        for name, (func, fields, msg) in PosConfig._constrains.items():
+            # Constraint de pos_self_order: _onchange_payment_method_ids sobre payment_method_ids/self_ordering_mode
+            if (
+                func.__name__ == "_onchange_payment_method_ids"
+                and "payment_method_ids" in fields
+                and "self_ordering_mode" in fields
+                and getattr(func, "__module__", "").startswith("odoo.addons.pos_self_order")
+            ):
+                continue
+            new_constrains[name] = (func, fields, msg)
+        PosConfig._constrains = new_constrains
+
+    # Recalcular is_cash_count en métodos CashDro para que queden con False (constraint quiosco).
+    PaymentMethod = env["pos.payment.method"]
+    cashdro_methods = PaymentMethod.search([("cashdro_enabled", "=", True)])
+    if cashdro_methods:
+        cashdro_methods._compute_is_cash_count()
+        cashdro_methods.flush_recordset(["is_cash_count"])
 
 
 __all__ = [

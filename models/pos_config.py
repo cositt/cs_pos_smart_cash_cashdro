@@ -2,28 +2,29 @@
 # Copyright 2026 Juan Cositt
 # License LGPL-3.0 or later (https://www.gnu.org/licenses/lgpl)
 
-from odoo import models, api
+from odoo import models, api, _
 from odoo.exceptions import ValidationError
-from odoo import _
 
 
 class PosConfig(models.Model):
     _inherit = "pos.config"
 
     @api.constrains("payment_method_ids", "self_ordering_mode")
-    def _check_kiosk_payment_methods(self):
+    def _onchange_payment_method_ids(self):
         """
-        Override de la validación de pos_self_order que bloquea cash en kiosk.
-        Permitimos Cashdrop en kiosk porque es una máquina automática que maneja el dinero.
+        Sustituye la validación de pos_self_order que bloquea TODO efectivo en kiosk.
+        Aquí solo bloqueamos métodos de efectivo que NO estén marcados como CashDro
+        (cashdro_enabled=True). Es decir:
+        - Efectivo normal: prohibido en kiosk.
+        - Efectivo CashDro: permitido en kiosk.
         """
         for record in self:
             if record.self_ordering_mode == "kiosk":
-                # Permitimos Cashdrop (es un terminal automático, no cash manual)
                 cash_methods = record.payment_method_ids.filtered(
-                    lambda pm: pm.is_cash_count
-                    and not (pm.journal_id and pm.journal_id.name == "Cashdrop")
+                    lambda pm: pm.is_cash_count and not getattr(pm, "cashdro_enabled", False)
                 )
                 if cash_methods:
+                    # Traducción alineada con la original, añadiendo la excepción Cashdrop.
                     raise ValidationError(
                         _(
                             "No puede agregar métodos de pago en efectivo al modo de quiosco, excepto Cashdrop."

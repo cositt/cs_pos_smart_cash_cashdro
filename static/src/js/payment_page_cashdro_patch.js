@@ -43,8 +43,32 @@ patch(PaymentPage.prototype, {
             return;
         }
 
-        const ps = response?.payment_status || {};
+        let ps = response?.payment_status || {};
         console.log("[Cashdrop] Payment Status:", ps);
+
+        // Fallback: si el backend no devolvió payment_status pero tenemos orden y método de pago,
+        // intentar iniciar pago CashDro con nuestro endpoint (por si pos_self_order no inyecta payment_status).
+        if (!ps.status && response?.order && this.state.paymentMethodId) {
+            const orderData = Array.isArray(response.order) ? response.order[0] : response.order;
+            const orderId = orderData?.id ?? orderData?.pos_order_id;
+            const amount = orderData?.amount_total ?? this.selfOrder.currentOrder?.getTotal?.();
+            if (orderId) {
+                try {
+                    const startResult = await rpc("/cashdro/payment/kiosk/start", {
+                        order_id: orderId,
+                        payment_method_id: this.state.paymentMethodId,
+                        amount: amount,
+                    });
+                    if (startResult?.success && startResult?.payment_status) {
+                        ps = startResult.payment_status;
+                        response = { ...response, payment_status: ps, order: response.order };
+                        console.log("[Cashdrop] Fallback start OK, payment_status:", ps);
+                    }
+                } catch (err) {
+                    console.warn("[Cashdrop] Fallback start failed (method may not be CashDro):", err);
+                }
+            }
+        }
 
         // ✓ SI ES CASHDROP Y ESTÁ PENDIENTE: MOSTRAR DIÁLOGO (NO CONTINUAR)
         if (ps.is_cashdrop && ps.status === "pending") {
