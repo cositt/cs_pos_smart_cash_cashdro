@@ -127,7 +127,7 @@ class PaymentMethodIntegration:
             polling_config = self.config_model.get_cashdro_config()
             response = self.gateway.ask_operation_with_polling(
                 transaction.operation_id,
-                polling_timeout=polling_config.get('polling_timeout', 60),
+                polling_timeout=polling_config.get('polling_timeout', 180),
                 polling_interval=polling_config.get('polling_interval', 500),
                 max_retries=polling_config.get('max_retries', 3)
             )

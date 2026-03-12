@@ -10,8 +10,7 @@ import { Dialog } from "@web/core/dialog/dialog";
 export class CashdropPendingDialog extends Component {
     static template = "cs_pos_smart_cash_cashdro.CashdropPendingDialog";
     static components = { Dialog };
-    static props = {
-        onCancel: { type: Function, optional: true },
-        close: { type: Function, optional: true },
-    };
+    // El servicio de diálogos inyecta automáticamente la prop `close`
+    // (misma convención que TimeoutPopup en pos_self_order).
+    static props = ["close"];
 }

@@ -7,6 +7,7 @@ import logging
 from datetime import datetime
 from odoo import http, _
 from odoo.exceptions import UserError
+from odoo.tools import float_is_zero
 from .payment_method_integration import PaymentMethodIntegration
 
 _logger = logging.getLogger(__name__)
@@ -488,6 +489,14 @@ class CashdropPaymentController(http.Controller):
         order = http.request.env['pos.order'].sudo().browse(int(order_id))
         if not order.exists():
             return {'success': False, 'error': 'Orden no encontrada'}
+
+        # Registrar el pago en la orden; sin esto action_pos_order_paid() lanza "no se pagó por completo"
+        if not float_is_zero(order.amount_total - order.amount_paid, precision_rounding=order.currency_id.rounding):
+            order.add_payment({
+                'amount': order.amount_total,
+                'payment_method_id': transaction.payment_method_id.id,
+                'pos_order_id': order.id,
+            })
         order.action_pos_order_paid()
         _logger.info("Kiosk payment confirmed and order sent to kitchen: order_id=%s", order_id)
         return {

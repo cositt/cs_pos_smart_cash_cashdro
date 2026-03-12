@@ -301,7 +301,7 @@ class TestResConfigSettings(TransactionCase):
         config = self.config_model.get_cashdro_config()
         
         self.assertEqual(config['connection_timeout'], 10)
-        self.assertEqual(config['polling_timeout'], 60)
+        self.assertEqual(config['polling_timeout'], 180)
         self.assertEqual(config['polling_interval'], 500)
         self.assertEqual(config['max_retries'], 3)
         self.assertEqual(config['retry_delay'], 2)

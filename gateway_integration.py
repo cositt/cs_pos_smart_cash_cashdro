@@ -146,6 +146,27 @@ class CashdropGatewayIntegration:
             raise UserError(_('Error en acknowledgeOperationId: %s') % str(e))
 
     def ask_operation(self, operation_id):
+        """Consulta el estado detallado de una operación (askOperation).
+
+        Según el manual v4.15, la respuesta viene como:
+        {
+            "code": <code>,
+            "response": {
+                "errorMessage": "none",
+                "operation": {
+                    "operation": {
+                        "operationid": "<operationId>",
+                        "state": "<state>",
+                        ...
+                    },
+                    "devices": [...],
+                    "messages": [],
+                    "withError": "<withError>",
+                    ...
+                }
+            }
+        }
+        """
         try:
             _logger.debug("Consultando estado de operación: %s", operation_id)
             params = {
@@ -160,16 +181,31 @@ class CashdropGatewayIntegration:
             )
             response.raise_for_status()
             data = self._parse_response(response)
-            
-            if data.get('code') == 1:
-                # Extraer estado de la operación
-                resp_data = data.get('data', {})
-                if isinstance(resp_data, str):
-                    resp_data = json.loads(resp_data)
-                operation_info = resp_data.get('operation', {})
-                state = operation_info.get('state', '?')
-                _logger.debug("Estado actual de operación %s: %s", operation_id, state)
-            
+
+            # Normalizar estructura de respuesta (response / data + operation / operation.operation)
+            normalized_operation = {}
+            try:
+                container = data.get('response')
+                if not container and data.get('data') is not None:
+                    container = data.get('data')
+                    if isinstance(container, str):
+                        container = json.loads(container)
+                if isinstance(container, dict):
+                    op_wrapper = container.get('operation') or {}
+                    if isinstance(op_wrapper, dict) and 'operation' in op_wrapper:
+                        normalized_operation = op_wrapper.get('operation') or {}
+                    else:
+                        normalized_operation = op_wrapper
+            except Exception as norm_err:
+                _logger.warning("No se pudo normalizar respuesta askOperation %s: %s", operation_id, norm_err)
+
+            state = normalized_operation.get('state', '?') if isinstance(normalized_operation, dict) else '?'
+            _logger.debug("Estado actual de operación %s: %s", operation_id, state)
+
+            # Adjuntar operación normalizada para que capas superiores puedan reutilizarla
+            if isinstance(data, dict):
+                data.setdefault('normalized_operation', normalized_operation)
+
             return data
         except Exception as e:
             raise UserError(_('Error consultando operación: %s') % str(e))
@@ -234,7 +270,7 @@ class CashdropGatewayIntegration:
         except Exception as e:
             raise UserError(_('Error finalizando operación: %s') % str(e))
 
-    def ask_operation_with_polling(self, operation_id, polling_timeout=60,
+    def ask_operation_with_polling(self, operation_id, polling_timeout=180,
                                    polling_interval=500, max_retries=3):
         start_time = time.time()
         polling_interval_sec = polling_interval / 1000.0
@@ -243,16 +279,37 @@ class CashdropGatewayIntegration:
         while time.time() - start_time < polling_timeout:
             try:
                 response = self.ask_operation(operation_id)
-                if 'data' in response:
-                    data = response['data']
-                    if isinstance(data, str):
-                        data = json.loads(data)
-                    if isinstance(data, dict) and 'operation' in data:
-                        state = data['operation'].get('state')
-                        _logger.debug("Estado operación: %s", state)
-                        if state == 'F':
-                            _logger.info("Operación completada: %s", operation_id)
-                            return response
+                # Usar operación normalizada si está presente (añadida en ask_operation)
+                op = None
+                if isinstance(response, dict):
+                    op = response.get('normalized_operation')
+                    if not op:
+                        container = response.get('response') or response.get('data')
+                        if isinstance(container, str):
+                            try:
+                                container = json.loads(container)
+                            except Exception:
+                                container = None
+                        if isinstance(container, dict):
+                            op_wrapper = container.get('operation') or {}
+                            if isinstance(op_wrapper, dict) and 'operation' in op_wrapper:
+                                op = op_wrapper.get('operation')
+                            else:
+                                op = op_wrapper
+
+                state = op.get('state') if isinstance(op, dict) else None
+                _logger.debug("Estado operación (polling): %s", state)
+                if state == 'F':
+                    _logger.info("Operación completada: %s", operation_id)
+                    return response
+
+                # Modo investigación: log completo de la respuesta de la máquina cuando no está finalizada
+                _logger.info(
+                    "[CASHDRO INVESTIGACIÓN] askOperation response (state=%s): %s",
+                    state or '?',
+                    json.dumps(response, default=str, ensure_ascii=False)[:2000],
+                )
+
                 time.sleep(polling_interval_sec)
                 retry_count = 0
             except UserError:

@@ -1,21 +1,15 @@
 /** @odoo-module */
 
 import { patch } from "@web/core/utils/patch";
-import { useService } from "@web/core/utils/hooks";
 import { rpc } from "@web/core/network/rpc";
 import { PaymentPage } from "@pos_self_order/app/pages/payment_page/payment_page";
-import { CashdropPendingDialog } from "./cashdrop_pending_dialog";
 
 /**
  * Patch de la página de pago del kiosk para Cashdrop:
- * - Si payment_status es pending + is_cashdrop: mensaje "Pague en la máquina Cashdro" y polling.
- * - Al recibir OK de la máquina (state 'F'), se cierra el mensaje y se confirma la orden automáticamente.
+ * - Si payment_status es pending + is_cashdrop: overlay "Pague en la máquina Cashdro" (sin servicio dialog, evita OwlError VToggler).
+ * - Al recibir OK de la máquina (state 'F'), se quita el overlay y se confirma la orden.
  */
 patch(PaymentPage.prototype, {
-    setup() {
-        super.setup(...arguments);
-        this.dialog = useService("dialog");
-    },
 
     /**
      * Reemplaza startPayment para capturar la respuesta y manejar Cashdrop pending.
@@ -70,10 +64,10 @@ patch(PaymentPage.prototype, {
             }
         }
 
-        // ✓ SI ES CASHDROP Y ESTÁ PENDIENTE: mensaje simple + polling; al OK de la máquina se cierra y confirma
+        // ✓ SI ES CASHDROP Y ESTÁ PENDIENTE: mostrar mensaje y delegar en backend la espera/confirmación
         if (ps.is_cashdrop && ps.status === "pending") {
-            console.log("[Cashdrop] Mostrando mensaje y empezando polling");
-            this._openCashdropPendingAndPoll(response);
+            console.log("[Cashdrop] Mostrando mensaje y delegando confirmación al backend");
+            this._openCashdropPendingAndConfirm(response);
             return;
         }
 
@@ -90,86 +84,70 @@ patch(PaymentPage.prototype, {
         await super.startPayment();
     },
 
-    _openCashdropPendingAndPoll(response) {
+    _openCashdropPendingAndConfirm(response) {
         const ps = response.payment_status || {};
         const orderData = response.order && (Array.isArray(response.order) ? response.order[0] : response.order);
         const orderId = orderData && (orderData.id || orderData.pos_order_id);
         const transactionId = ps.transaction_id;
-        let dialogRef;
-        let pollIntervalId = null;
 
-        const closeDialog = () => {
-            if (pollIntervalId !== null) {
-                clearInterval(pollIntervalId);
-                pollIntervalId = null;
-            }
-            if (dialogRef && typeof dialogRef.close === "function") {
-                dialogRef.close();
-            }
-        };
+        // Overlay DOM puro (sin dialog service) para evitar OwlError "this.child.mount is not a function" al cerrar.
+        const removeOverlay = this._showCashdropOverlay();
 
-        const pollStatus = async () => {
-            try {
-                const base = typeof window !== "undefined" && window.location ? window.location.origin : "";
-                const r = await fetch(`${base}/cashdro/payment/status/${encodeURIComponent(transactionId)}`);
-                if (!r.ok) return;
-                const data = await r.json();
-                const state = data.state;
-                const status = data.status;
-                if (state === "F" || status === "confirmed") {
-                    closeDialog();
-                    await this._confirmCashdropPayment(transactionId, orderId, () => {});
-                    return;
-                }
-            } catch (e) {
-                console.warn("[Cashdrop] Poll status error:", e);
-            }
-        };
-
-        dialogRef = this.dialog.add(CashdropPendingDialog, {
-            onCancel: () => {
-                closeDialog();
-                this._cancelCashdropPayment(transactionId, () => {});
-            },
-            close: closeDialog,
-        });
-
-        pollIntervalId = setInterval(pollStatus, 2000);
-        pollStatus();
+        this._autoConfirmCashdrop(transactionId, orderId, removeOverlay);
     },
 
-    async _confirmCashdropPayment(transactionId, orderId, closeDialog) {
+    _showCashdropOverlay() {
+        const overlay = document.createElement("div");
+        overlay.className = "cashdrop-pending-overlay position-fixed top-0 start-0 end-0 bottom-0 d-flex align-items-center justify-content-center bg-dark bg-opacity-75";
+        overlay.style.zIndex = "9999";
+        overlay.innerHTML = `
+            <div class="bg-white rounded-4 shadow-lg p-5 text-center mx-3" style="max-width: 22em;">
+                <div class="mb-4">
+                    <i class="fa fa-money fa-4x text-success" aria-hidden="true"></i>
+                </div>
+                <h2 class="mb-3 fw-bold text-dark">Pague en la máquina Cashdro</h2>
+                <p class="lead text-muted mb-0">Inserte el efectivo en la máquina. La orden se confirmará automáticamente al completar el pago.</p>
+            </div>
+        `;
+        document.body.appendChild(overlay);
+        return () => {
+            if (overlay.parentNode) {
+                overlay.remove();
+            }
+        };
+    },
+
+    async _autoConfirmCashdrop(transactionId, orderId, removeOverlay) {
         try {
             const result = await rpc("/cashdro/payment/kiosk/confirm", {
                 transaction_id: transactionId,
                 order_id: orderId,
             });
             if (result && result.success) {
-                closeDialog();
+                removeOverlay?.();
                 this.selfOrder.notification?.add?.({
                     message: result.message || "Orden enviada a cocina",
                     type: "success",
                 });
-                this.router.back();
+                // Navegar en la siguiente frame para que Owl cierre el ciclo de render actual
+                // y no dispare VToggler "this.child.mount is not a function" al cambiar de slot.
+                const accessToken = this.selfOrder.currentOrder?.access_token;
+                const navigate = () => {
+                    if (accessToken) {
+                        this.selfOrder.confirmationPage("pay", "kiosk", accessToken);
+                    } else {
+                        this.router.back();
+                    }
+                };
+                requestAnimationFrame(() => navigate());
             } else {
+                removeOverlay?.();
                 this.selfOrder.handleErrorNotification(result?.error || "Error al confirmar pago");
             }
         } catch (error) {
+            removeOverlay?.();
             this.selfOrder.handleErrorNotification(error?.message || error || "Error al confirmar pago");
         }
-    },
-
-    async _cancelCashdropPayment(transactionId, closeDialog) {
-        try {
-            await rpc("/cashdro/payment/cancel", {
-                transaction_id: transactionId,
-            });
-        } catch (_e) {
-            // Ignorar error de cancelación
-        }
-        closeDialog();
-        this.state.selection = true;
-        this.state.paymentMethodId = null;
     },
 
     _applyPaymentSuccess(response) {

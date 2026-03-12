@@ -73,7 +73,7 @@ Buscar "CS POS Smart Cash CashDro" e instalar
 | `cashdro_enabled` | False | Habilitar integración |
 | `cashdro_default_gateway_url` | - | URL base (ej: `https://10.0.1.140`) |
 | `cashdro_connection_timeout` | 10s | Timeout conexión HTTP |
-| `cashdro_polling_timeout` | 60s | Timeout total de polling |
+| `cashdro_polling_timeout` | 180s | Timeout total de polling |
 | `cashdro_polling_interval` | 500ms | Intervalo entre intentos |
 | `cashdro_verify_ssl` | False | Verificar certificado SSL |
 | `cashdro_max_retries` | 3 | Máximo reintentos en error |
@@ -319,7 +319,7 @@ Las transacciones se vinculan a órdenes de venta mediante:
 ## Notas
 
 1. **SSL**: En desarrollo, `verify_ssl=False` es recomendado
-2. **Timeouts**: Ajustar según latencia de red (default: 10s conexión, 60s polling)
+2. **Timeouts**: Ajustar según latencia de red (default: 10s conexión, 180s polling)
 3. **Reintentos**: Default 3 reintentos cada 2 segundos
 4. **Secuencias**: Nombres automáticos con formato `TXN-202603-000001`
 5. **Auditoría**: Todos los campos tienen create_date, write_date, user_id

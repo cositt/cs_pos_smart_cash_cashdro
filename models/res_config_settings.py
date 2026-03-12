@@ -62,8 +62,8 @@ class ResConfigSettings(models.TransientModel):
     cashdro_polling_timeout = fields.Integer(
         string='Timeout de Polling (segundos)',
         config_parameter='cs_pos_smart_cash_cashdro.cashdro_polling_timeout',
-        default=60,
-        help='Tiempo máximo de espera en polling de operaciones'
+        default=180,
+        help='Tiempo máximo de espera en polling de operaciones (p. ej. 180 = 3 min)'
     )
     
     cashdro_polling_interval = fields.Integer(
