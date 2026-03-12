@@ -8,8 +8,18 @@ import { PaymentPage } from "@pos_self_order/app/pages/payment_page/payment_page
  * Patch de la página de pago del kiosk para Cashdrop:
  * - Si payment_status es pending + is_cashdrop: overlay "Pague en la máquina Cashdro" (sin servicio dialog, evita OwlError VToggler).
  * - Al recibir OK de la máquina (state 'F'), se quita el overlay y se confirma la orden.
+ * - Para CashDro no se pone state.selection = false, así no se re-renderiza la rama t-else y se evita el VToggler "solo primera vez".
  */
 patch(PaymentPage.prototype, {
+
+    selectMethod(methodId) {
+        this.state.paymentMethodId = methodId;
+        const method = this.selfOrder.models["pos.payment.method"].get(methodId);
+        if (!method || !method.cashdro_enabled) {
+            this.state.selection = false;
+        }
+        this.startPayment();
+    },
 
     /**
      * Reemplaza startPayment para capturar la respuesta y manejar Cashdrop pending.
@@ -86,17 +96,39 @@ patch(PaymentPage.prototype, {
 
     _openCashdropPendingAndConfirm(response) {
         const ps = response.payment_status || {};
-        const orderData = response.order && (Array.isArray(response.order) ? response.order[0] : response.order);
+        const orderData =
+            response.order && (Array.isArray(response.order) ? response.order[0] : response.order);
         const orderId = orderData && (orderData.id || orderData.pos_order_id);
         const transactionId = ps.transaction_id;
+        const operationId = ps.operation_id;
 
         // Overlay DOM puro (sin dialog service) para evitar OwlError "this.child.mount is not a function" al cerrar.
-        const removeOverlay = this._showCashdropOverlay();
+        let removeOverlay;
+        const handleCancel = () => {
+            this._clearCashdropTimeout();
+            this._cancelCashdrop(transactionId, operationId, removeOverlay);
+        };
+        removeOverlay = this._showCashdropOverlay(handleCancel);
+
+        this._cashdropCancelled = false;
+        // Si en 60 s no se paga ni se cancela: cancelar en CashDro y reiniciar quiosco.
+        const TIMEOUT_MS = 60 * 1000;
+        this._cashdropTimeoutId = setTimeout(() => {
+            this._cashdropTimeoutId = null;
+            this._cancelCashdrop(transactionId, operationId, removeOverlay);
+        }, TIMEOUT_MS);
 
         this._autoConfirmCashdrop(transactionId, orderId, removeOverlay);
     },
 
-    _showCashdropOverlay() {
+    _clearCashdropTimeout() {
+        if (this._cashdropTimeoutId != null) {
+            clearTimeout(this._cashdropTimeoutId);
+            this._cashdropTimeoutId = null;
+        }
+    },
+
+    _showCashdropOverlay(onCancel) {
         const overlay = document.createElement("div");
         overlay.className = "cashdrop-pending-overlay position-fixed top-0 start-0 end-0 bottom-0 d-flex align-items-center justify-content-center bg-dark bg-opacity-75";
         overlay.style.zIndex = "9999";
@@ -107,14 +139,58 @@ patch(PaymentPage.prototype, {
                 </div>
                 <h2 class="mb-3 fw-bold text-dark">Pague en la máquina Cashdro</h2>
                 <p class="lead text-muted mb-0">Inserte el efectivo en la máquina. La orden se confirmará automáticamente al completar el pago.</p>
+                <button type="button" class="btn btn-outline-secondary mt-4 w-100 cashdrop-cancel-btn">
+                    Cancelar pago y volver
+                </button>
             </div>
         `;
         document.body.appendChild(overlay);
+        const cancelBtn = overlay.querySelector(".cashdrop-cancel-btn");
+        if (cancelBtn && typeof onCancel === "function") {
+            cancelBtn.addEventListener("click", (ev) => {
+                ev.preventDefault();
+                onCancel();
+            });
+        }
         return () => {
             if (overlay.parentNode) {
                 overlay.remove();
             }
         };
+    },
+
+    async _cancelCashdrop(transactionId, operationId, removeOverlay) {
+        this._clearCashdropTimeout();
+        try {
+            this._cashdropCancelled = true;
+            const payload = { transaction_id: transactionId };
+            if (operationId) {
+                payload.operation_id = operationId;
+            }
+            const result = await rpc("/cashdro/payment/cancel", payload);
+            removeOverlay?.();
+            if (result && result.success) {
+                this.selfOrder.notification?.add?.({
+                    message: result.message || "Pago cancelado",
+                    type: "warning",
+                });
+            } else {
+                this.selfOrder.handleErrorNotification(
+                    result?.error || "Error al cancelar pago en CashDro"
+                );
+            }
+        } catch (error) {
+            removeOverlay?.();
+            this.selfOrder.handleErrorNotification(
+                error?.message || error || "Error al cancelar pago en CashDro"
+            );
+        }
+        this.state.selection = true;
+        this.state.paymentMethodId = null;
+        this.selfOrder.paymentError = true;
+        if (this.router && typeof this.router.navigate === "function") {
+            this.router.navigate("default");
+        }
     },
 
     async _autoConfirmCashdrop(transactionId, orderId, removeOverlay) {
@@ -123,14 +199,20 @@ patch(PaymentPage.prototype, {
                 transaction_id: transactionId,
                 order_id: orderId,
             });
+            if (this._cashdropCancelled) {
+                this._clearCashdropTimeout();
+                removeOverlay?.();
+                return;
+            }
             if (result && result.success) {
+                this._clearCashdropTimeout();
                 removeOverlay?.();
                 this.selfOrder.notification?.add?.({
                     message: result.message || "Orden enviada a cocina",
                     type: "success",
                 });
-                // Navegar en la siguiente frame para que Owl cierre el ciclo de render actual
-                // y no dispare VToggler "this.child.mount is not a function" al cambiar de slot.
+                // Retrasar navegación 2 frames para que Owl termine el ciclo de render de PaymentPage
+                // (t-if state.selection → false) y no monte un VToggler con child undefined (solo primera vez).
                 const accessToken = this.selfOrder.currentOrder?.access_token;
                 const navigate = () => {
                     if (accessToken) {
@@ -139,12 +221,16 @@ patch(PaymentPage.prototype, {
                         this.router.back();
                     }
                 };
-                requestAnimationFrame(() => navigate());
+                requestAnimationFrame(() => {
+                    requestAnimationFrame(navigate);
+                });
             } else {
+                this._clearCashdropTimeout();
                 removeOverlay?.();
                 this.selfOrder.handleErrorNotification(result?.error || "Error al confirmar pago");
             }
         } catch (error) {
+            this._clearCashdropTimeout();
             removeOverlay?.();
             this.selfOrder.handleErrorNotification(error?.message || error || "Error al confirmar pago");
         }

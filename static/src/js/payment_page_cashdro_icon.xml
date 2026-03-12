@@ -2,6 +2,12 @@
 <templates id="template" xml:space="preserve">
     <!-- Solo la tarjeta del método con CashDro activado muestra icono de billetes; el resto sigue con tarjeta -->
     <t t-name="cs_pos_smart_cash_cashdro.PaymentPage" t-inherit="pos_self_order.PaymentPage" t-inherit-mode="extension">
+        <!-- Fix OwlError "this.child.mount is not a function": t-if sin t-else deja la rama else undefined; Owl monta undefined. t-else con nodo real para que la rama siempre sea montable (evita fallo "solo la primera vez"). -->
+        <xpath expr="//div[@t-if='state.selection']" position="after">
+            <t t-else="">
+                <div class="d-none" style="display: none;" aria-hidden="true"/>
+            </t>
+        </xpath>
         <xpath expr="//div[hasclass('grid')]//button//i" position="replace">
             <t t-if="payment_method.cashdro_enabled">
                 <i class="fa fa-money" aria-hidden="true"></i>
