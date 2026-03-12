@@ -169,20 +169,26 @@ class CashdroTransaction(models.Model):
     # SECUENCIAS
     # ========================
     
+    @api.model
+    def _next_sequence_or_fallback(self, fallback_prefix="TXN"):
+        """Obtener siguiente valor de secuencia; si falla (ej. prefijo inválido), usar fallback."""
+        import random
+        try:
+            return self.env['ir.sequence'].next_by_code('cashdro.transaction.sequence')
+        except Exception as e:
+            _logger.warning("Secuencia Cashdrop no disponible (%s), usando fallback", e)
+            return f"{fallback_prefix}-{datetime.now().strftime('%Y%m%d%H%M%S')}-{random.randint(10000, 99999)}"
+
     @api.model_create_multi
     def create(self, vals_list):
         """Generar ID secuencial y transaction_id al crear"""
         for vals in vals_list:
             # Generar 'name' (referencia secuencial)
             if not vals.get('name'):
-                vals['name'] = self.env['ir.sequence'].next_by_code(
-                    'cashdro.transaction.sequence'
-                ) or f"TXN-{datetime.now().timestamp()}"
-            # Generar 'transaction_id' si no está proporcionado
+                vals['name'] = self._next_sequence_or_fallback()
+            # transaction_id lo aporta normalmente PaymentMethodIntegration (UUID); si no, fallback
             if not vals.get('transaction_id'):
-                vals['transaction_id'] = self.env['ir.sequence'].next_by_code(
-                    'cashdro.transaction.sequence'
-                ) or f"TXN-{datetime.now().timestamp()}"
+                vals['transaction_id'] = self._next_sequence_or_fallback("ID")
         return super().create(vals_list)
     
     # ========================

@@ -1,0 +1,14 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<templates id="template" xml:space="preserve">
+    <!-- Solo la tarjeta del método con CashDro activado muestra icono de billetes; el resto sigue con tarjeta -->
+    <t t-name="cs_pos_smart_cash_cashdro.PaymentPage" t-inherit="pos_self_order.PaymentPage" t-inherit-mode="extension">
+        <xpath expr="//div[hasclass('grid')]//button//i" position="replace">
+            <t t-if="payment_method.cashdro_enabled">
+                <i class="fa fa-money" aria-hidden="true"></i>
+            </t>
+            <t t-else="">
+                <i class="fa fa-credit-card" aria-hidden="true"></i>
+            </t>
+        </xpath>
+    </t>
+</templates>

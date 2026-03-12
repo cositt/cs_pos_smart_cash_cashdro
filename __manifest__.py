@@ -25,6 +25,7 @@
     ],
     "assets": {
         "pos_self_order.assets": [
+            "cs_pos_smart_cash_cashdro/static/src/css/cashdrop_pending_dialog.css",
             "cs_pos_smart_cash_cashdro/static/src/js/cashdrop_pending_dialog.js",
             "cs_pos_smart_cash_cashdro/static/src/js/cashdrop_pending_dialog.xml",
             "cs_pos_smart_cash_cashdro/static/src/js/payment_page_cashdro_patch.js",

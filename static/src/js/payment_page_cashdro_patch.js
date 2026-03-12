@@ -7,9 +7,9 @@ import { PaymentPage } from "@pos_self_order/app/pages/payment_page/payment_page
 import { CashdropPendingDialog } from "./cashdrop_pending_dialog";
 
 /**
- * Patch de la página de pago del kiosk para soportar Cashdrop con status 'pending':
- * - Intercepta la respuesta del backend; si payment_status es pending + is_cashdrop, muestra diálogo.
- * - El usuario confirma en el diálogo → POST /cashdro/payment/kiosk/confirm → orden a cocina.
+ * Patch de la página de pago del kiosk para Cashdrop:
+ * - Si payment_status es pending + is_cashdrop: mensaje "Pague en la máquina Cashdro" y polling.
+ * - Al recibir OK de la máquina (state 'F'), se cierra el mensaje y se confirma la orden automáticamente.
  */
 patch(PaymentPage.prototype, {
     setup() {
@@ -70,11 +70,11 @@ patch(PaymentPage.prototype, {
             }
         }
 
-        // ✓ SI ES CASHDROP Y ESTÁ PENDIENTE: MOSTRAR DIÁLOGO (NO CONTINUAR)
+        // ✓ SI ES CASHDROP Y ESTÁ PENDIENTE: mensaje simple + polling; al OK de la máquina se cierra y confirma
         if (ps.is_cashdrop && ps.status === "pending") {
-            console.log("[Cashdrop] Opening pending dialog");
-            this._openCashdropPendingDialog(response);
-            return; // ← IMPORTANTE: NO CONTINUAR, ESPERAR CONFIRMACIÓN
+            console.log("[Cashdrop] Mostrando mensaje y empezando polling");
+            this._openCashdropPendingAndPoll(response);
+            return;
         }
 
         // ✗ SI CASHDROP DEVOLVIÓ ERROR
@@ -90,27 +90,52 @@ patch(PaymentPage.prototype, {
         await super.startPayment();
     },
 
-    _openCashdropPendingDialog(response) {
+    _openCashdropPendingAndPoll(response) {
         const ps = response.payment_status || {};
         const orderData = response.order && (Array.isArray(response.order) ? response.order[0] : response.order);
         const orderId = orderData && (orderData.id || orderData.pos_order_id);
+        const transactionId = ps.transaction_id;
         let dialogRef;
+        let pollIntervalId = null;
 
         const closeDialog = () => {
+            if (pollIntervalId !== null) {
+                clearInterval(pollIntervalId);
+                pollIntervalId = null;
+            }
             if (dialogRef && typeof dialogRef.close === "function") {
                 dialogRef.close();
             }
         };
 
+        const pollStatus = async () => {
+            try {
+                const base = typeof window !== "undefined" && window.location ? window.location.origin : "";
+                const r = await fetch(`${base}/cashdro/payment/status/${encodeURIComponent(transactionId)}`);
+                if (!r.ok) return;
+                const data = await r.json();
+                const state = data.state;
+                const status = data.status;
+                if (state === "F" || status === "confirmed") {
+                    closeDialog();
+                    await this._confirmCashdropPayment(transactionId, orderId, () => {});
+                    return;
+                }
+            } catch (e) {
+                console.warn("[Cashdrop] Poll status error:", e);
+            }
+        };
+
         dialogRef = this.dialog.add(CashdropPendingDialog, {
-            message: ps.message || "Esperando confirmación de pago en Cashdrop...",
-            operation_id: ps.operation_id,
-            transaction_id: ps.transaction_id,
-            order_id: orderId,
-            onConfirm: () => this._confirmCashdropPayment(ps.transaction_id, orderId, closeDialog),
-            onCancel: () => this._cancelCashdropPayment(ps.transaction_id, closeDialog),
+            onCancel: () => {
+                closeDialog();
+                this._cancelCashdropPayment(transactionId, () => {});
+            },
             close: closeDialog,
         });
+
+        pollIntervalId = setInterval(pollStatus, 2000);
+        pollStatus();
     },
 
     async _confirmCashdropPayment(transactionId, orderId, closeDialog) {

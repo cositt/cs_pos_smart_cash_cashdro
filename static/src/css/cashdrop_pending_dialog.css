@@ -1,0 +1,11 @@
+/* Mensaje "Pague en la máquina Cashdro" - más atractivo en quiosco */
+.cashdrop-pending-dialog-attractive .cashdrop-pending-body {
+    background: linear-gradient(to bottom, #f8fff8 0%, #fff 100%);
+    border-radius: 0.5rem;
+}
+.cashdrop-pending-dialog-attractive .cashdrop-icon-wrapper {
+    opacity: 0.9;
+}
+.cashdrop-pending-dialog-attractive .cashdrop-icon-wrapper .fa-money {
+    filter: drop-shadow(0 2px 4px rgba(0,0,0,0.08));
+}
