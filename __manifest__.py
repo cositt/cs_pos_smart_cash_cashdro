@@ -33,6 +33,12 @@
             "cs_pos_smart_cash_cashdro/static/src/js/payment_page_cashdro_patch.js",
             "cs_pos_smart_cash_cashdro/static/src/js/self_order_cashdro_patch.js",
         ],
+        # Compatibilidad POS (no integra la caja registradora, solo evita errores JS
+        # en módulos que siguen llamando order.getChange()).
+        "point_of_sale._assets_pos": [
+            "cs_pos_smart_cash_cashdro/static/src/app/compat_pos_get_change.js",
+            "cs_pos_smart_cash_cashdro/static/src/app/compat_payment_validate_get_change.js",
+        ],
     },
     "data": [
         # Security
