@@ -61,17 +61,33 @@ class PaymentMethodIntegration:
             password=password
         )
 
+    def _safe_m2one_id(self, value):
+        """Solo acepta int o None. Si viene UUID/string no numérico (ej. order.id en POS antes de guardar), devuelve None."""
+        if value is None:
+            return None
+        if isinstance(value, int):
+            return value
+        s = str(value).strip()
+        if not s or "-" in s or not s.isdigit():
+            return None
+        try:
+            return int(s)
+        except (ValueError, TypeError):
+            return None
+
     def create_transaction(self, order_id=None, amount=None, user_id=None, pos_session_id=None, pos_order_id=None):
         """
         Crear registro de transacción.
-        Debe indicarse order_id (sale.order) o pos_order_id (pos.order).
+        order_id / pos_order_id son opcionales (en POS la orden puede no estar guardada y venir como UUID).
         """
         if amount is None or amount <= 0:
             raise UserError(_('El monto debe ser positivo'))
-        if not order_id and not pos_order_id:
-            raise UserError(_('Debe indicar order_id o pos_order_id'))
         if user_id is None:
             user_id = self.env.user.id
+
+        pos_session_id = self._safe_m2one_id(pos_session_id)
+        pos_order_id = self._safe_m2one_id(pos_order_id)
+        order_id = self._safe_m2one_id(order_id)
 
         transaction_id = str(uuid.uuid4())
         vals = {
