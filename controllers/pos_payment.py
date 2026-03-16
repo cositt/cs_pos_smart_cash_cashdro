@@ -397,6 +397,133 @@ class CashdropPaymentController(http.Controller):
         )
 
     # ========================
+    # CAJA REGISTRADORA (POS): rutas JSON para el frontend PaymentScreen
+    # ========================
+
+    @http.route('/cashdro/payment/pos/summary', type='json', auth='user')
+    def pos_payment_summary(self, payment_method_id=None):
+        """Resumen de la máquina para el diálogo de confirmación antes de cobrar."""
+        try:
+            if not payment_method_id:
+                return {'success': False, 'error': _('Falta payment_method_id')}
+            env = http.request.env
+            pm = env['pos.payment.method'].sudo().browse(int(payment_method_id))
+            if not pm.exists():
+                return {'success': False, 'error': _('Método de pago no encontrado')}
+            if not getattr(pm, 'cashdro_enabled', False):
+                return {'success': False, 'error': _('Método de pago no es CashDro')}
+            return {
+                'success': True,
+                'connection_status': getattr(pm, 'cashdro_connection_status', 'not_tested'),
+                'error_message': getattr(pm, 'cashdro_error_message', None) or '',
+                'pieces_info': {},
+                'deposit_levels_json': getattr(pm, 'cashdro_deposit_levels_json', None) or '',
+            }
+        except Exception as e:
+            _logger.exception("POS CashDro summary error")
+            return {'success': False, 'error': str(e)}
+
+    def _safe_int_id(self, value):
+        """Convierte a int solo si es numérico. Evita int(UUID) cuando el front envía order.id/session.id como UUID."""
+        if value is None:
+            return None
+        if isinstance(value, int):
+            return value
+        s = str(value).strip()
+        if not s or "-" in s or not s.isdigit():
+            return None
+        try:
+            return int(s)
+        except (ValueError, TypeError):
+            return None
+
+    @http.route('/cashdro/payment/pos/start', type='json', auth='user')
+    def pos_payment_start(self, payment_method_id=None, amount=None, pos_session_id=None, pos_order_id=None, **kwargs):
+        """Iniciar pago en CashDro desde la caja. Devuelve transaction_id para polling."""
+        if not payment_method_id or amount is None:
+            return {'success': False, 'error': _('Faltan payment_method_id o amount')}
+        amount_val = float(amount)
+        if amount_val <= 0:
+            return {'success': False, 'error': _('El importe debe ser mayor que cero')}
+        env = http.request.env
+        pm = env['pos.payment.method'].sudo().browse(int(payment_method_id))
+        if not pm.exists() or not getattr(pm, 'cashdro_enabled', False):
+            return {'success': False, 'error': _('Método de pago no es CashDro')}
+        try:
+            integration = PaymentMethodIntegration(env, payment_method_id=pm.id)
+            validation = integration.validate_configuration()
+            if not validation['valid']:
+                return {'success': False, 'error': '; '.join(validation['errors'])}
+            transaction = integration.create_transaction(
+                amount=amount_val,
+                user_id=env.user.id,
+                pos_session_id=self._safe_int_id(pos_session_id),
+                pos_order_id=self._safe_int_id(pos_order_id),
+            )
+            result = integration.start_payment(transaction, user_credentials=None)
+            if not result.get('success'):
+                return {'success': False, 'error': result.get('error', _('Error al iniciar pago'))}
+            return {
+                'success': True,
+                'transaction_id': transaction.transaction_id,
+                'operation_id': result.get('operation_id'),
+            }
+        except UserError as e:
+            return {'success': False, 'error': str(e)}
+        except Exception as e:
+            _logger.exception("POS CashDro start error")
+            return {'success': False, 'error': str(e)}
+
+    @http.route('/cashdro/payment/pos/status', type='json', auth='user')
+    def pos_payment_status(self, transaction_id=None, **kwargs):
+        """Estado del pago (polling). Devuelve status: pending|confirmed|cancelled|error|timeout."""
+        if not transaction_id:
+            return {'success': False, 'error': _('Falta transaction_id')}
+        env = http.request.env
+        tx = env['cashdro.transaction'].sudo().search([('transaction_id', '=', transaction_id)], limit=1)
+        if not tx:
+            return {'success': False, 'error': _('Transacción no encontrada')}
+        try:
+            integration = PaymentMethodIntegration(env, payment_method_id=tx.payment_method_id.id)
+            info = integration.get_payment_status(tx)
+            state = (info.get('state') or '').upper()
+            # Gateway puede devolver:
+            # - 'E' (Ended / Finalizada) o 'F' / 'FINISHED' / 'COMPLETED' para operación terminada correctamente
+            # - 'C' (Cancelled) o 'CANCELLED' / 'ABORTED' / 'ERROR' para cancelación o fallo
+            if state in ('E', 'F', 'FINISHED', 'COMPLETED') or tx.is_confirmed():
+                return {'success': True, 'status': 'confirmed', 'message': _('Pago confirmado')}
+            if state in ('C', 'CANCELLED', 'ABORTED', 'ERROR'):
+                return {'success': True, 'status': 'cancelled', 'message': info.get('message', _('Operación cancelada'))}
+            return {'success': True, 'status': 'processing', 'message': _('Esperando pago...')}
+        except Exception as e:
+            _logger.warning("POS status %s: %s", transaction_id, e)
+            return {'success': True, 'status': 'processing', 'message': str(e)}
+
+    @http.route('/cashdro/payment/pos/confirm', type='json', auth='user')
+    def pos_payment_confirm(self, transaction_id=None, **kwargs):
+        """Confirmar pago en servidor y devolver amount_received."""
+        if not transaction_id:
+            return {'success': False, 'error': _('Falta transaction_id')}
+        env = http.request.env
+        tx = env['cashdro.transaction'].sudo().search([('transaction_id', '=', transaction_id)], limit=1)
+        if not tx:
+            return {'success': False, 'error': _('Transacción no encontrada')}
+        try:
+            integration = PaymentMethodIntegration(env, payment_method_id=tx.payment_method_id.id)
+            result = integration.confirm_payment(tx)
+            if not result.get('success'):
+                return {'success': False, 'error': result.get('error', _('Error al confirmar'))}
+            return {
+                'success': True,
+                'amount_received': result.get('amount_received', 0),
+            }
+        except UserError as e:
+            return {'success': False, 'error': str(e)}
+        except Exception as e:
+            _logger.exception("POS CashDro confirm error")
+            return {'success': False, 'error': str(e)}
+
+    # ========================
     # KIOSK: INICIAR PAGO CASHDRO (fallback cuando el backend no devuelve payment_status)
     # ========================
 

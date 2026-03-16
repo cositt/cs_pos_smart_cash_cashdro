@@ -80,6 +80,45 @@ class PosPaymentMethod(models.Model):
     )
 
     # ========================
+    # TERMINAL POS: use_payment_terminal = 'cashdro'
+    # ========================
+    # Para que la caja registradora use el interface de pago CashDro al pulsar
+    # el método (ej. Efectivisimo), debe aparecer en la selección y asignarse al marcar cashdro_enabled.
+    def _get_payment_terminal_selection(self):
+        return super()._get_payment_terminal_selection() + [('cashdro', 'CashDro')]
+
+    @api.onchange('cashdro_enabled')
+    def _onchange_cashdro_enabled(self):
+        if self.cashdro_enabled:
+            self.use_payment_terminal = 'cashdro'
+            self.payment_method_type = 'terminal'
+
+    # ========================
+    # CARGA POS (caja): enviar use_payment_terminal = 'cashdro' si cashdro_enabled
+    # ========================
+    # Así el front siempre recibe el terminal aunque la sesión se abrió antes de guardar el método.
+    @api.model
+    def _load_pos_data_fields(self, config):
+        fields = super()._load_pos_data_fields(config)
+        if 'cashdro_enabled' not in fields:
+            fields = list(fields) + ['cashdro_enabled']
+        return fields
+
+    @api.model
+    def _load_pos_data_read(self, records, config):
+        result = super()._load_pos_data_read(records, config)
+        # Construir mapa id -> record para saber cuáles tienen cashdro_enabled
+        id_to_record = {r.id: r for r in records}
+        for row in result:
+            rec = id_to_record.get(row.get('id'))
+            # Usar el recordset: si el método tiene cashdro habilitado, forzar terminal en la respuesta
+            if rec and getattr(rec, 'cashdro_enabled', False):
+                row['use_payment_terminal'] = 'cashdro'
+                row['payment_method_type'] = 'terminal'
+                row['cashdro_enabled'] = True
+        return result
+
+    # ========================
     # is_cash_count: no contar como efectivo en quiosco
     # ========================
     # El core pos_self_order bloquea métodos con is_cash_count en modo quiosco.

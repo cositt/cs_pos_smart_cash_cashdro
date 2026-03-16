@@ -61,17 +61,33 @@ class PaymentMethodIntegration:
             password=password
         )
 
+    def _safe_m2one_id(self, value):
+        """Solo acepta int o None. Si viene UUID/string no numérico (ej. order.id en POS antes de guardar), devuelve None."""
+        if value is None:
+            return None
+        if isinstance(value, int):
+            return value
+        s = str(value).strip()
+        if not s or "-" in s or not s.isdigit():
+            return None
+        try:
+            return int(s)
+        except (ValueError, TypeError):
+            return None
+
     def create_transaction(self, order_id=None, amount=None, user_id=None, pos_session_id=None, pos_order_id=None):
         """
         Crear registro de transacción.
-        Debe indicarse order_id (sale.order) o pos_order_id (pos.order).
+        order_id / pos_order_id son opcionales (en POS la orden puede no estar guardada y venir como UUID).
         """
         if amount is None or amount <= 0:
             raise UserError(_('El monto debe ser positivo'))
-        if not order_id and not pos_order_id:
-            raise UserError(_('Debe indicar order_id o pos_order_id'))
         if user_id is None:
             user_id = self.env.user.id
+
+        pos_session_id = self._safe_m2one_id(pos_session_id)
+        pos_order_id = self._safe_m2one_id(pos_order_id)
+        order_id = self._safe_m2one_id(order_id)
 
         transaction_id = str(uuid.uuid4())
         vals = {
@@ -174,15 +190,32 @@ class PaymentMethodIntegration:
             response = self.gateway.ask_operation(transaction.operation_id)
             state = None
             amount_received = None
-            if 'data' in response:
+
+            # Preferir la operación normalizada que devuelve gateway_integration.ask_operation()
+            op = response.get('normalized_operation')
+            if not op and 'data' in response:
                 import json
                 data = response['data']
                 if isinstance(data, str):
                     data = json.loads(data)
                 if isinstance(data, dict) and 'operation' in data:
                     op = data['operation']
-                    state = op.get('state')
-                    amount_received = op.get('totalin', 0) / 100
+
+            if isinstance(op, dict):
+                state = op.get('state')
+                try:
+                    amount_received = float(op.get('totalin', 0)) / 100
+                except Exception:
+                    amount_received = None
+
+            _logger.info(
+                "CashDro get_payment_status tx=%s state=%s amount_received=%s raw_op=%s",
+                transaction.transaction_id,
+                state,
+                amount_received,
+                op,
+            )
+
             return {
                 'status': transaction.status,
                 'operation_id': transaction.operation_id,

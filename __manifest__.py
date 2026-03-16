@@ -33,6 +33,12 @@
             "cs_pos_smart_cash_cashdro/static/src/js/payment_page_cashdro_patch.js",
             "cs_pos_smart_cash_cashdro/static/src/js/self_order_cashdro_patch.js",
         ],
+        # Caja registradora: compat getChange + interface CashDro (al pulsar Efectivisimo se envía pago a CashDro).
+        "point_of_sale._assets_pos": [
+            "cs_pos_smart_cash_cashdro/static/src/app/compat_pos_get_change.js",
+            "cs_pos_smart_cash_cashdro/static/src/app/compat_payment_validate_get_change.js",
+            "cs_pos_smart_cash_cashdro/static/src/app/pos_cashdro_payment.js",
+        ],
     },
     "data": [
         # Security
