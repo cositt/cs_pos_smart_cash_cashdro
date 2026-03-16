@@ -486,11 +486,13 @@ class CashdropPaymentController(http.Controller):
         try:
             integration = PaymentMethodIntegration(env, payment_method_id=tx.payment_method_id.id)
             info = integration.get_payment_status(tx)
-            state = info.get('state')
-            # Gateway puede devolver 'F' (finished), 'completed', etc.
-            if state in ('F', 'finished', 'completed') or tx.is_confirmed():
+            state = (info.get('state') or '').upper()
+            # Gateway puede devolver:
+            # - 'E' (Ended / Finalizada) o 'F' / 'FINISHED' / 'COMPLETED' para operación terminada correctamente
+            # - 'C' (Cancelled) o 'CANCELLED' / 'ABORTED' / 'ERROR' para cancelación o fallo
+            if state in ('E', 'F', 'FINISHED', 'COMPLETED') or tx.is_confirmed():
                 return {'success': True, 'status': 'confirmed', 'message': _('Pago confirmado')}
-            if state in ('cancelled', 'aborted', 'error', 'C'):
+            if state in ('C', 'CANCELLED', 'ABORTED', 'ERROR'):
                 return {'success': True, 'status': 'cancelled', 'message': info.get('message', _('Operación cancelada'))}
             return {'success': True, 'status': 'processing', 'message': _('Esperando pago...')}
         except Exception as e:

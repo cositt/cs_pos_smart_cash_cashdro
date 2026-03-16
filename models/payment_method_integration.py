@@ -190,15 +190,32 @@ class PaymentMethodIntegration:
             response = self.gateway.ask_operation(transaction.operation_id)
             state = None
             amount_received = None
-            if 'data' in response:
+
+            # Preferir la operación normalizada que devuelve gateway_integration.ask_operation()
+            op = response.get('normalized_operation')
+            if not op and 'data' in response:
                 import json
                 data = response['data']
                 if isinstance(data, str):
                     data = json.loads(data)
                 if isinstance(data, dict) and 'operation' in data:
                     op = data['operation']
-                    state = op.get('state')
-                    amount_received = op.get('totalin', 0) / 100
+
+            if isinstance(op, dict):
+                state = op.get('state')
+                try:
+                    amount_received = float(op.get('totalin', 0)) / 100
+                except Exception:
+                    amount_received = None
+
+            _logger.info(
+                "CashDro get_payment_status tx=%s state=%s amount_received=%s raw_op=%s",
+                transaction.transaction_id,
+                state,
+                amount_received,
+                op,
+            )
+
             return {
                 'status': transaction.status,
                 'operation_id': transaction.operation_id,

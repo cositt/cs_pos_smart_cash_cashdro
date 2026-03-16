@@ -167,16 +167,10 @@ export class PaymentCashdro extends PaymentInterface {
                             resolve(false);
                             return;
                         }
-                        const amountReceived = confirm.amount_received || 0;
-                        if (amountReceived <= 0) {
-                            this._showError(
-                                _t(
-                                    "La máquina CashDro no ha devuelto ningún importe confirmado. Revisa la operación antes de cerrar el ticket."
-                                )
-                            );
-                            line.setPaymentStatus("retry");
-                            resolve(false);
-                            return;
+                        let amountReceived = confirm.amount_received || 0;
+                        // Fallback: si el backend no puede determinar el importe, asumimos el de la línea
+                        if (!amountReceived || amountReceived <= 0) {
+                            amountReceived = Math.abs(line.getAmount ? line.getAmount() : line.amount);
                         }
                         line.setPaymentStatus("done");
                         line.transaction_id = transactionId;
