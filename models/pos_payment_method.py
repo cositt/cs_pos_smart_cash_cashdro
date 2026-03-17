@@ -80,17 +80,22 @@ class PosPaymentMethod(models.Model):
     )
 
     # ========================
-    # TERMINAL POS: use_payment_terminal = 'cashdro'
+    # TERMINAL POS: use_payment_terminal = 'cashdro' / 'cashdro_refund'
     # ========================
     # Para que la caja registradora use el interface de pago CashDro al pulsar
     # el método (ej. Efectivisimo), debe aparecer en la selección y asignarse al marcar cashdro_enabled.
+    # Añadimos 'cashdro_refund' como terminal opcional para reembolsos, sin alterar el comportamiento de 'cashdro'.
     def _get_payment_terminal_selection(self):
-        return super()._get_payment_terminal_selection() + [('cashdro', 'CashDro')]
+        return super()._get_payment_terminal_selection() + [
+            ('cashdro', 'CashDro'),
+            ('cashdro_refund', 'CashDro (Reembolso)'),
+        ]
 
     @api.onchange('cashdro_enabled')
     def _onchange_cashdro_enabled(self):
         if self.cashdro_enabled:
-            self.use_payment_terminal = 'cashdro'
+            if self.use_payment_terminal != 'cashdro_refund':
+                self.use_payment_terminal = 'cashdro'
             self.payment_method_type = 'terminal'
 
     # ========================
@@ -111,9 +116,10 @@ class PosPaymentMethod(models.Model):
         id_to_record = {r.id: r for r in records}
         for row in result:
             rec = id_to_record.get(row.get('id'))
-            # Usar el recordset: si el método tiene cashdro habilitado, forzar terminal en la respuesta
+            # Si cashdro habilitado: cobro usa 'cashdro', reembolso usa 'cashdro_refund' (no sobrescribir).
             if rec and getattr(rec, 'cashdro_enabled', False):
-                row['use_payment_terminal'] = 'cashdro'
+                terminal = getattr(rec, 'use_payment_terminal', None) or row.get('use_payment_terminal')
+                row['use_payment_terminal'] = 'cashdro_refund' if terminal == 'cashdro_refund' else 'cashdro'
                 row['payment_method_type'] = 'terminal'
                 row['cashdro_enabled'] = True
         return result

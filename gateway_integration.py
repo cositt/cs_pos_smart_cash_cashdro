@@ -82,7 +82,19 @@ class CashdropGatewayIntegration:
                 'startnow': 'true',
                 'posuser': self.posuser,
             }
-            _logger.info("CashDro startOperation: endpoint=%s type=%s amount_eur=%s", self.endpoint, operation_type, amount_eur)
+            log_params = params.copy()
+            # No loguear la contraseña en claro
+            if 'password' in log_params:
+                log_params['password'] = '***'
+            _logger.info(
+                "CashDro startOperation REQUEST: endpoint=%s type=%s (%s) amount_eur=%s amount_cents=%s params=%s",
+                self.endpoint,
+                operation_type,
+                "PAGO/dispensa" if operation_type == 3 else "VENTA/cobro",
+                amount_eur,
+                amount_cents,
+                log_params,
+            )
             response = requests.get(
                 self.endpoint, params=params, timeout=self.timeout, verify=self.verify_ssl
             )
