@@ -74,7 +74,10 @@ export class PaymentCashdro extends PaymentInterface {
         const order = this.pos.getOrder();
         const line = order.getPaymentlineByUuid(uuid);
         if (!line) return false;
-        const amount = Math.abs(line.getAmount ? line.getAmount() : line.amount);
+        const rawAmount = line.getAmount ? line.getAmount() : line.amount;
+        const amount = Math.abs(rawAmount);
+        const isRefund = rawAmount < 0;
+
         if (!amount || amount <= 0) {
             this._showError(_t("El importe de la línea de pago debe ser mayor que cero."));
             line.setPaymentStatus("retry");
@@ -90,6 +93,28 @@ export class PaymentCashdro extends PaymentInterface {
         try {
             line.setPaymentStatus("waiting");
             const posOrderId = order.id || order.server_id || null;
+
+            // Si la línea es negativa (reembolso), usar flujo de PAGO (type=3) del backend.
+            if (isRefund) {
+                const result = await rpc("/cashdro/payment/pos_refund/start", {
+                    payment_method_id: this.payment_method_id.id,
+                    amount,
+                    pos_session_id: this.pos.session?.id || null,
+                    pos_order_id: posOrderId,
+                });
+
+                if (!result || !result.success) {
+                    this._showError(result?.error || _t("Error al iniciar reembolso en CashDro."));
+                    line.setPaymentStatus("retry");
+                    return false;
+                }
+
+                // Flujo simple: la máquina dispensa y damos la línea por completada.
+                line.setPaymentStatus("done");
+                return true;
+            }
+
+            // Cobro normal (importe positivo): flujo estándar con transacción y polling.
             const result = await rpc("/cashdro/payment/pos/start", {
                 payment_method_id: this.payment_method_id.id,
                 amount,

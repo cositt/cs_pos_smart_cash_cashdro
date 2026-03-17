@@ -9,6 +9,7 @@ from odoo import http, _
 from odoo.exceptions import UserError
 from odoo.tools import float_is_zero
 from .payment_method_integration import PaymentMethodIntegration
+from ..gateway_integration import CashdropGatewayIntegration
 
 _logger = logging.getLogger(__name__)
 
@@ -437,6 +438,9 @@ class CashdropPaymentController(http.Controller):
         except (ValueError, TypeError):
             return None
 
+    # ========================
+    # CAJA REGISTRADORA (POS): COBRO (flujo estándar, SIN CAMBIOS)
+    # ========================
     @http.route('/cashdro/payment/pos/start', type='json', auth='user')
     def pos_payment_start(self, payment_method_id=None, amount=None, pos_session_id=None, pos_order_id=None, **kwargs):
         """Iniciar pago en CashDro desde la caja. Devuelve transaction_id para polling."""
@@ -450,6 +454,13 @@ class CashdropPaymentController(http.Controller):
         if not pm.exists() or not getattr(pm, 'cashdro_enabled', False):
             return {'success': False, 'error': _('Método de pago no es CashDro')}
         try:
+            _logger.info(
+                "POS CashDro PAYMENT START /pos/start: method_id=%s amount=%s pos_session_id=%s pos_order_id=%s",
+                pm.id,
+                amount_val,
+                pos_session_id,
+                pos_order_id,
+            )
             integration = PaymentMethodIntegration(env, payment_method_id=pm.id)
             validation = integration.validate_configuration()
             if not validation['valid']:
@@ -521,6 +532,66 @@ class CashdropPaymentController(http.Controller):
             return {'success': False, 'error': str(e)}
         except Exception as e:
             _logger.exception("POS CashDro confirm error")
+            return {'success': False, 'error': str(e)}
+
+    # ========================
+    # CAJA REGISTRADORA (POS): REEMBOLSO SIMPLE (PAGO AL CLIENTE)
+    # ========================
+
+    @http.route('/cashdro/payment/pos_refund/start', type='json', auth='user')
+    def pos_refund_start(self, payment_method_id=None, amount=None, **kwargs):
+        """
+        Iniciar un reembolso en CashDro desde la caja.
+        No crea cashdro.transaction ni hace polling: replica el flujo del wizard
+        CashdroMovimientoDevolucionWizard usando startOperation type=3.
+        """
+        if not payment_method_id or amount is None:
+            return {'success': False, 'error': _('Faltan payment_method_id o amount')}
+        try:
+            amount_val = float(amount)
+        except (TypeError, ValueError):
+            return {'success': False, 'error': _('El importe debe ser numérico')}
+        if amount_val <= 0:
+            return {'success': False, 'error': _('El importe debe ser mayor que cero')}
+
+        env = http.request.env
+        pm = env['pos.payment.method'].sudo().browse(int(payment_method_id))
+        if not pm.exists() or not getattr(pm, 'cashdro_enabled', False):
+            return {'success': False, 'error': _('Método de pago no es CashDro')}
+
+        # Construir gateway igual que en cashdro_movimiento_wizards._get_gateway_from_method
+        try:
+            _logger.info(
+                "POS CashDro REFUND START /pos_refund/start: method_id=%s amount=%s",
+                pm.id,
+                amount_val,
+            )
+            config = env['res.config.settings'].sudo().get_cashdro_config()
+            url = pm.get_gateway_url()
+            gateway = CashdropGatewayIntegration(
+                gateway_url=url,
+                timeout=config.get('connection_timeout', 10),
+                verify_ssl=config.get('verify_ssl', False),
+                log_level=config.get('log_level', 'INFO'),
+                user=pm.cashdro_user,
+                password=pm.cashdro_password,
+            )
+            # type=3 = DEVOLUCIÓN/DISPENSA (payOutProgress). La máquina dispensará el importe.
+            res = gateway.start_operation(amount_val, operation_type=3)
+            _logger.info(
+                "POS CashDro REFUND START OK: operation_id=%s response_code=%s",
+                res.get('operation_id'),
+                res.get('code'),
+            )
+            return {
+                'success': True,
+                'operation_id': res.get('operation_id'),
+                'message': _('Reembolso iniciado. La máquina dispensará el importe.'),
+            }
+        except UserError as e:
+            return {'success': False, 'error': str(e)}
+        except Exception as e:
+            _logger.exception("POS CashDro refund start error")
             return {'success': False, 'error': str(e)}
 
     # ========================
