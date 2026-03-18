@@ -38,7 +38,6 @@
             "cs_pos_smart_cash_cashdro/static/src/app/compat_pos_get_change.js",
             "cs_pos_smart_cash_cashdro/static/src/app/compat_payment_validate_get_change.js",
             "cs_pos_smart_cash_cashdro/static/src/app/pos_cashdro_payment.js",
-            "cs_pos_smart_cash_cashdro/static/src/app/pos_cashdro_refund_payment.js",
         ],
     },
     "data": [
