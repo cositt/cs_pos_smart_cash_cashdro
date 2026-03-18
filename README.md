@@ -1,4 +1,8 @@
-# CS POS Smart Cash Cashdrop - Módulo Odoo 19
+<p align="center">
+  <img src="./static/icon.png" alt="CS POS Smart Cash CashDro" width="220" />
+</p>
+
+# CS POS Smart Cash CashDro - Módulo Odoo 19
 
 Integración completa de máquinas de pago Cashdrop para puntos de venta en Odoo 19.
 
@@ -369,7 +373,10 @@ sale
 
 ## Licencia
 
-LGPL-3.0 or later
+Este proyecto se distribuye bajo los términos de la **GNU Lesser General Public License v3.0 o posterior (LGPL-3.0-or-later)**, en línea con el estándar de módulos Odoo.
+
+**Copyright (c) 2026 Cositt**  
+Repositorio/organización: `https://github.com/cositt`
 
 ## Autor
 
