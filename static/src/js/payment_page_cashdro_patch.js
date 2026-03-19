@@ -207,16 +207,26 @@ patch(PaymentPage.prototype, {
             if (result && result.success) {
                 this._clearCashdropTimeout();
                 removeOverlay?.();
+                // Igual que PAYMENT_STATUS en terminal: datos pagados en el modelo local
+                // para que el ticket comensal y printKioskChanges (cocina) tengan líneas/estado correctos.
+                if (result.order_sync && this.selfOrder.models?.connectNewData) {
+                    try {
+                        this.selfOrder.models.connectNewData(result.order_sync);
+                    } catch (e) {
+                        console.warn("[Cashdrop] connectNewData order_sync:", e);
+                    }
+                }
                 this.selfOrder.notification?.add?.({
                     message: result.message || "Orden enviada a cocina",
                     type: "success",
                 });
-                // Retrasar navegación 2 frames para que Owl termine el ciclo de render de PaymentPage
-                // (t-if state.selection → false) y no monte un VToggler con child undefined (solo primera vez).
-                const accessToken = this.selfOrder.currentOrder?.access_token;
+                const accessToken =
+                    result.order_sync?.["pos.order"]?.[0]?.access_token ||
+                    this.selfOrder.currentOrder?.access_token;
                 const navigate = () => {
                     if (accessToken) {
-                        this.selfOrder.confirmationPage("pay", "kiosk", accessToken);
+                        // "order" alinea con pos_self_order tras pago terminal (no "pay").
+                        this.selfOrder.confirmationPage("order", "kiosk", accessToken);
                     } else {
                         this.router.back();
                     }

@@ -1,7 +1,7 @@
 # -*- coding: utf-8 -*-
 {
     "name": "CS POS Smart Cash CashDro",
-    "version": "19.0.1.1.0",
+    "version": "19.0.1.8.0",
     "category": "Sales/Point of Sale",
     "summary": "Integración de máquinas Cashdrop para pagos en POS",
     "description": """
@@ -29,9 +29,9 @@
             "cs_pos_smart_cash_cashdro/static/src/js/cashdrop_pending_dialog.js",
             "cs_pos_smart_cash_cashdro/static/src/js/cashdrop_pending_dialog.xml",
             "cs_pos_smart_cash_cashdro/static/src/js/payment_page_cashdro_icon.xml",
-            "cs_pos_smart_cash_cashdro/static/src/js/router_no_dynamic_slot_patch.js",
             "cs_pos_smart_cash_cashdro/static/src/js/payment_page_cashdro_patch.js",
             "cs_pos_smart_cash_cashdro/static/src/js/self_order_cashdro_patch.js",
+            "cs_pos_smart_cash_cashdro/static/src/js/kiosk_epson_https_retry.js",
         ],
         # Caja registradora: compat getChange + interface CashDro (al pulsar Efectivisimo se envía pago a CashDro).
         "point_of_sale._assets_pos": [
@@ -50,6 +50,7 @@
         "views/cashdro_transaction_views.xml",
         "views/cashdro_movimientos_views.xml",
         "views/res_config_settings_views.xml",
+        "views/pos_self_order_kiosk_print_settings.xml",
     ],
     "post_init_hook": "post_init_hook",
     "images": ["static/description/icon.png"],

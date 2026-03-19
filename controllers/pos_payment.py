@@ -696,10 +696,22 @@ class CashdropPaymentController(http.Controller):
                 'pos_order_id': order.id,
             })
         order.action_pos_order_paid()
-        _logger.info("Kiosk payment confirmed and order sent to kitchen: order_id=%s", order_id)
+        # Mismo efecto que tras pago Stripe/Adyen vía _send_payment_result (sin PAYMENT_STATUS):
+        # email de recibo si aplica, pantallas de preparación / hooks _send_order.
+        order._send_self_order_receipt()
+        order._send_order()
+        cfg = order.config_id
+        order_sync = {
+            'pos.order': order.read(order._load_pos_self_data_fields(cfg), load=False),
+            'pos.order.line': order.lines.read(
+                order.lines._load_pos_self_data_fields(cfg), load=False
+            ),
+        }
+        _logger.info("Kiosk CashDro paid: order_id=%s, order_sync lines=%s", order_id, len(order_sync['pos.order.line']))
         return {
             'success': True,
             'message': _('Pago confirmado, orden enviada a cocina'),
             'order_id': order.id,
+            'order_sync': order_sync,
         }
 
