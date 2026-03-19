@@ -13,11 +13,22 @@ import { PaymentPage } from "@pos_self_order/app/pages/payment_page/payment_page
 patch(PaymentPage.prototype, {
 
     selectMethod(methodId) {
+        const method = this.selfOrder?.models?.["pos.payment.method"]?.get?.(methodId);
+        console.log("[Cashdrop][PaymentPage] selectMethod", {
+            methodId,
+            methodName: method?.name,
+            cashdro_enabled: method?.cashdro_enabled,
+            use_payment_terminal: method?.use_payment_terminal,
+            beforeStateSelection: this.state?.selection,
+        });
+
         this.state.paymentMethodId = methodId;
-        const method = this.selfOrder.models["pos.payment.method"].get(methodId);
         if (!method || !method.cashdro_enabled) {
             this.state.selection = false;
         }
+        console.log("[Cashdrop][PaymentPage] selectMethod after state.selection", {
+            stateSelection: this.state?.selection,
+        });
         this.startPayment();
     },
 
@@ -76,6 +87,11 @@ patch(PaymentPage.prototype, {
 
         // ✓ SI ES CASHDROP Y ESTÁ PENDIENTE: mostrar mensaje y delegar en backend la espera/confirmación
         if (ps.is_cashdrop && ps.status === "pending") {
+            console.log("[Cashdrop][PaymentPage] pending cashdro path", {
+                stateSelection: this.state?.selection,
+                paymentMethodId: this.state?.paymentMethodId,
+                selectedPaymentMethod: this.selectedPaymentMethod?.name,
+            });
             console.log("[Cashdrop] Mostrando mensaje y delegando confirmación al backend");
             this._openCashdropPendingAndConfirm(response);
             return;
@@ -170,10 +186,8 @@ patch(PaymentPage.prototype, {
             const result = await rpc("/cashdro/payment/cancel", payload);
             removeOverlay?.();
             if (result && result.success) {
-                this.selfOrder.notification?.add?.({
-                    message: result.message || "Pago cancelado",
-                    type: "warning",
-                });
+                const msg = result.message || "Pago cancelado";
+                this.selfOrder.notification?.add?.(msg, { type: "warning" });
             } else {
                 this.selfOrder.handleErrorNotification(
                     result?.error || "Error al cancelar pago en CashDro"
@@ -216,15 +230,23 @@ patch(PaymentPage.prototype, {
                         console.warn("[Cashdrop] connectNewData order_sync:", e);
                     }
                 }
-                this.selfOrder.notification?.add?.({
-                    message: result.message || "Orden enviada a cocina",
-                    type: "success",
-                });
+                // La API de pos_self_order.notification.add espera (messageString, {type}).
+                // Si le pasamos un objeto como primer parámetro, en algún template se renderiza
+                // con t-out y Owl intenta montar un "block" que en realidad es un objeto plano.
+                // Usamos la firma correcta para evitar el crash.
+                const msg = result.message || "Orden enviada a cocina";
+                this.selfOrder.notification?.add?.(msg, { type: "success" });
                 const accessToken =
                     result.order_sync?.["pos.order"]?.[0]?.access_token ||
                     this.selfOrder.currentOrder?.access_token;
                 const navigate = () => {
                     if (accessToken) {
+                        console.log("[Cashdrop] Navigate to confirmationPage", {
+                            screenMode: "kiosk",
+                            stateSelection: this.state?.selection,
+                            accessTokenPresent: Boolean(accessToken),
+                            accessTokenPrefix: String(accessToken).slice(0, 6),
+                        });
                         // "order" alinea con pos_self_order tras pago terminal (no "pay").
                         this.selfOrder.confirmationPage("order", "kiosk", accessToken);
                     } else {

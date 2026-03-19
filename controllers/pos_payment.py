@@ -609,6 +609,12 @@ class CashdropPaymentController(http.Controller):
         amount = amount or kwargs.get('amount')
         if not order_id or not payment_method_id:
             return {'success': False, 'error': 'Faltan order_id o payment_method_id'}
+        _logger.info(
+            "Kiosk CashDro start request: order_id=%s payment_method_id=%s amount=%s",
+            order_id,
+            payment_method_id,
+            amount,
+        )
         env = http.request.env
         order = env['pos.order'].sudo().browse(int(order_id))
         if not order.exists():
@@ -667,6 +673,11 @@ class CashdropPaymentController(http.Controller):
         order_id = order_id or kwargs.get('order_id')
         if not transaction_id or not order_id:
             return {'success': False, 'error': 'Parámetros faltantes: transaction_id, order_id'}
+        _logger.info(
+            "Kiosk CashDro confirm request: transaction_id=%s order_id=%s",
+            transaction_id,
+            order_id,
+        )
 
         transaction_model = http.request.env['cashdro.transaction'].sudo()
         transaction = transaction_model.search([('transaction_id', '=', transaction_id)], limit=1)
@@ -707,7 +718,13 @@ class CashdropPaymentController(http.Controller):
                 order.lines._load_pos_self_data_fields(cfg), load=False
             ),
         }
-        _logger.info("Kiosk CashDro paid: order_id=%s, order_sync lines=%s", order_id, len(order_sync['pos.order.line']))
+        _logger.info(
+            "Kiosk CashDro paid: order_id=%s order.amount_total=%s order.amount_paid=%s order_sync_lines=%s",
+            order.id,
+            order.amount_total,
+            order.amount_paid,
+            len(order_sync['pos.order.line']),
+        )
         return {
             'success': True,
             'message': _('Pago confirmado, orden enviada a cocina'),
