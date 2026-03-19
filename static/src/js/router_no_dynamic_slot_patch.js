@@ -85,7 +85,3 @@ Router.components = {
     OrdersHistoryPage,
 };
 
-// Verificación: si ves este mensaje en consola, el parche se cargó.
-if (typeof console !== "undefined") {
-    console.log("[CashDro] Router patch applied: template t-if/t-elif (no dynamic slot)");
-}

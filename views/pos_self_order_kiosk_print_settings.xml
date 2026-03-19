@@ -1,0 +1,14 @@
+<?xml version="1.0" encoding="utf-8"?>
+<odoo>
+    <record id="res_config_settings_view_kiosk_sequential_print" model="ir.ui.view">
+        <field name="name">res.config.settings.kiosk.sequential.print</field>
+        <field name="model">res.config.settings</field>
+        <field name="inherit_id" ref="pos_self_order.res_config_settings_view_form_menu"/>
+        <field name="arch" type="xml">
+            <!-- Opción de impresión secuencial en quiosco retirada; vista conservada para no romper DB. -->
+            <xpath expr="//div[@id='self-payment-after']" position="after">
+                <t/>
+            </xpath>
+        </field>
+    </record>
+</odoo>

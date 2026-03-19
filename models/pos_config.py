@@ -2,12 +2,23 @@
 # Copyright 2026 Juan Cositt
 # License LGPL-3.0 or later (https://www.gnu.org/licenses/lgpl)
 
-from odoo import models, api, _
+from odoo import models, api, fields, _
 from odoo.exceptions import ValidationError
 
 
 class PosConfig(models.Model):
     _inherit = "pos.config"
+
+    # Campo usado por vistas de configuración (y por el related en res.config.settings).
+    # No añadimos aquí lógica nueva; solo almacenamos el flag para compatibilidad.
+    self_ordering_kiosk_sequential_print = fields.Boolean(
+        string="Quiosco: impresión secuencial",
+        default=True,
+        help=(
+            "Si está activo, tras el pago se imprime primero la cocina y después el ticket "
+            "del cliente. Si se desactiva, se usa el comportamiento estándar de Odoo."
+        ),
+    )
 
     @api.constrains("payment_method_ids")
     def _check_payment_method_ids_journal(self):

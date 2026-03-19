@@ -13,7 +13,15 @@ class ResConfigSettings(models.TransientModel):
     """Modelo para configuración global de Cashdrop"""
     
     _inherit = 'res.config.settings'
-    
+
+    # Campo heredado de pos_self_order para compatibilidad con vistas existentes.
+    # No añadimos lógica propia; simplemente lo exponemos como related al pos.config.
+    pos_self_ordering_kiosk_sequential_print = fields.Boolean(
+        string="Quiosco: impresión secuencial (cocina → ticket)",
+        related="pos_config_id.self_ordering_kiosk_sequential_print",
+        readonly=False,
+    )
+
     # ========================
     # CONFIGURACIÓN GENERAL
     # ========================
