@@ -13,8 +13,9 @@ import { PaymentPage } from "@pos_self_order/app/pages/payment_page/payment_page
 patch(PaymentPage.prototype, {
 
     selectMethod(methodId) {
+        const method = this.selfOrder?.models?.["pos.payment.method"]?.get?.(methodId);
+
         this.state.paymentMethodId = methodId;
-        const method = this.selfOrder.models["pos.payment.method"].get(methodId);
         if (!method || !method.cashdro_enabled) {
             this.state.selection = false;
         }
@@ -39,7 +40,6 @@ patch(PaymentPage.prototype, {
                 `/kiosk/payment/${this.selfOrder.config.id}/kiosk`,
                 payload
             );
-            console.log("[Cashdrop] RPC Response:", response);
         } catch (error) {
             console.error("[Cashdrop] RPC Error:", error);
             this.selfOrder.handleErrorNotification(error);
@@ -48,7 +48,6 @@ patch(PaymentPage.prototype, {
         }
 
         let ps = response?.payment_status || {};
-        console.log("[Cashdrop] Payment Status:", ps);
 
         // Fallback: si el backend no devolvió payment_status pero tenemos orden y método de pago,
         // intentar iniciar pago CashDro con nuestro endpoint (por si pos_self_order no inyecta payment_status).
@@ -66,17 +65,14 @@ patch(PaymentPage.prototype, {
                     if (startResult?.success && startResult?.payment_status) {
                         ps = startResult.payment_status;
                         response = { ...response, payment_status: ps, order: response.order };
-                        console.log("[Cashdrop] Fallback start OK, payment_status:", ps);
                     }
                 } catch (err) {
-                    console.warn("[Cashdrop] Fallback start failed (method may not be CashDro):", err);
                 }
             }
         }
 
         // ✓ SI ES CASHDROP Y ESTÁ PENDIENTE: mostrar mensaje y delegar en backend la espera/confirmación
         if (ps.is_cashdrop && ps.status === "pending") {
-            console.log("[Cashdrop] Mostrando mensaje y delegando confirmación al backend");
             this._openCashdropPendingAndConfirm(response);
             return;
         }
@@ -90,7 +86,6 @@ patch(PaymentPage.prototype, {
         }
 
         // ✓ SI NO ES CASHDROP O EL PAGO YA ESTÁ CONFIRMADO: CONTINUAR FLUJO NORMAL
-        console.log("[Cashdrop] Applying success, continuing normal flow");
         await super.startPayment();
     },
 
@@ -170,10 +165,8 @@ patch(PaymentPage.prototype, {
             const result = await rpc("/cashdro/payment/cancel", payload);
             removeOverlay?.();
             if (result && result.success) {
-                this.selfOrder.notification?.add?.({
-                    message: result.message || "Pago cancelado",
-                    type: "warning",
-                });
+                const msg = result.message || "Pago cancelado";
+                this.selfOrder.notification?.add?.(msg, { type: "warning" });
             } else {
                 this.selfOrder.handleErrorNotification(
                     result?.error || "Error al cancelar pago en CashDro"
@@ -213,13 +206,14 @@ patch(PaymentPage.prototype, {
                     try {
                         this.selfOrder.models.connectNewData(result.order_sync);
                     } catch (e) {
-                        console.warn("[Cashdrop] connectNewData order_sync:", e);
                     }
                 }
-                this.selfOrder.notification?.add?.({
-                    message: result.message || "Orden enviada a cocina",
-                    type: "success",
-                });
+                // La API de pos_self_order.notification.add espera (messageString, {type}).
+                // Si le pasamos un objeto como primer parámetro, en algún template se renderiza
+                // con t-out y Owl intenta montar un "block" que en realidad es un objeto plano.
+                // Usamos la firma correcta para evitar el crash.
+                const msg = result.message || "Orden enviada a cocina";
+                this.selfOrder.notification?.add?.(msg, { type: "success" });
                 const accessToken =
                     result.order_sync?.["pos.order"]?.[0]?.access_token ||
                     this.selfOrder.currentOrder?.access_token;

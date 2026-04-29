@@ -6,7 +6,7 @@
  * Evita el OwlError "this.child.mount is not a function" al navegar payment → confirmation.
  */
 import { patch } from "@web/core/utils/patch";
-import { xml } from "@odoo/owl";
+import { xml, onWillRender } from "@odoo/owl";
 import { getTemplate } from "@web/core/templates";
 import { useSelfOrder } from "@pos_self_order/app/services/self_order_service";
 import { Router } from "@pos_self_order/app/router";
@@ -38,10 +38,13 @@ const ROUTER_TEMPLATE = xml`
         <CartPage/>
     </t>
     <t t-elif="this.activeSlot === 'payment'">
-        <PaymentPage />
+        <t t-component="this._routerComponents.PaymentPage" />
     </t>
     <t t-elif="this.activeSlot === 'confirmation'">
-        <ConfirmationPage orderAccessToken="this.slotProps?.orderAccessToken" screenMode="this.slotProps?.screenMode" />
+        <t
+            t-component="this._routerComponents.ConfirmationPage"
+            t-props="{ orderAccessToken: this.slotProps?.orderAccessToken, screenMode: this.slotProps?.screenMode }"
+        />
     </t>
     <t t-elif="this.activeSlot === 'location'">
         <EatingLocationPage />
@@ -61,17 +64,33 @@ patch(Router.prototype, {
     setup() {
         super.setup(...arguments);
         this.selfOrder = useSelfOrder();
-        // Precalentar template PaymentPage (con extensión t-else) para que la primera orden
-        // no use una versión sin extensión por orden de resolución/caché.
-        try {
-            getTemplate("pos_self_order.PaymentPage");
-        } catch (_) {
-            // Si aún no está registrado (bundle no acabado), se resolverá al navegar a payment.
-        }
+        // Asegurar que el template resuelve componentes desde el scope del instance.
+        this._routerComponents = Router.components;
+
+        onWillRender(() => {
+            try {
+                const debug = "[CashDro][Router]";
+                const activeSlot = this.activeSlot;
+                const slotProps = this.slotProps;
+                // Evitar spam: solo loguear en payment/confirmation.
+                if (activeSlot === "payment" || activeSlot === "confirmation") {
+                    const comps = Router.components || {};
+                    console.log(debug, { activeSlot, slotProps });
+                    console.log(`${debug}[components-info]`, {
+                        keys: Object.keys(comps),
+                        PaymentPageType: typeof comps.PaymentPage,
+                        PaymentPageTemplate: comps.PaymentPage?.template,
+                        ConfirmationPageType: typeof comps.ConfirmationPage,
+                        ConfirmationPageTemplate: comps.ConfirmationPage?.template,
+                    });
+                }
+            } catch (_) {
+                // Solo debug.
+            }
+        });
     },
 });
 
-Router.template = ROUTER_TEMPLATE;
 Router.components = {
     LandingPage,
     ProductListPage,
@@ -84,4 +103,7 @@ Router.components = {
     StandNumberPage,
     OrdersHistoryPage,
 };
+
+Router.template = ROUTER_TEMPLATE;
+
 

@@ -189,10 +189,10 @@ class CashdropPaymentController(http.Controller):
     # ENDPOINT 3: CANCELAR PAGO
     # ========================
     
-    @http.route('/cashdro/payment/cancel', auth='public', type='json', csrf=False)
+    @http.route('/cashdro/payment/cancel', auth='public', type='jsonrpc', csrf=False)
     def cancel_payment(self, transaction_id=None, operation_id=None, **kwargs):
         """
-        Cancelar pago (type='json' para rpc() desde el frontend del kiosk).
+        Cancelar pago (type='jsonrpc' para rpc() desde el frontend del kiosk).
         """
         data = {'transaction_id': transaction_id or kwargs.get('transaction_id'), 'operation_id': operation_id or kwargs.get('operation_id')}
         transaction = self._get_transaction(data)
@@ -401,7 +401,7 @@ class CashdropPaymentController(http.Controller):
     # CAJA REGISTRADORA (POS): rutas JSON para el frontend PaymentScreen
     # ========================
 
-    @http.route('/cashdro/payment/pos/summary', type='json', auth='user')
+    @http.route('/cashdro/payment/pos/summary', type='jsonrpc', auth='user')
     def pos_payment_summary(self, payment_method_id=None):
         """Resumen de la máquina para el diálogo de confirmación antes de cobrar."""
         try:
@@ -441,7 +441,7 @@ class CashdropPaymentController(http.Controller):
     # ========================
     # CAJA REGISTRADORA (POS): COBRO (flujo estándar, SIN CAMBIOS)
     # ========================
-    @http.route('/cashdro/payment/pos/start', type='json', auth='user')
+    @http.route('/cashdro/payment/pos/start', type='jsonrpc', auth='user')
     def pos_payment_start(self, payment_method_id=None, amount=None, pos_session_id=None, pos_order_id=None, **kwargs):
         """Iniciar pago en CashDro desde la caja. Devuelve transaction_id para polling."""
         if not payment_method_id or amount is None:
@@ -485,7 +485,7 @@ class CashdropPaymentController(http.Controller):
             _logger.exception("POS CashDro start error")
             return {'success': False, 'error': str(e)}
 
-    @http.route('/cashdro/payment/pos/status', type='json', auth='user')
+    @http.route('/cashdro/payment/pos/status', type='jsonrpc', auth='user')
     def pos_payment_status(self, transaction_id=None, **kwargs):
         """Estado del pago (polling). Devuelve status: pending|confirmed|cancelled|error|timeout."""
         if not transaction_id:
@@ -510,7 +510,7 @@ class CashdropPaymentController(http.Controller):
             _logger.warning("POS status %s: %s", transaction_id, e)
             return {'success': True, 'status': 'processing', 'message': str(e)}
 
-    @http.route('/cashdro/payment/pos/confirm', type='json', auth='user')
+    @http.route('/cashdro/payment/pos/confirm', type='jsonrpc', auth='user')
     def pos_payment_confirm(self, transaction_id=None, **kwargs):
         """Confirmar pago en servidor y devolver amount_received."""
         if not transaction_id:
@@ -538,7 +538,7 @@ class CashdropPaymentController(http.Controller):
     # CAJA REGISTRADORA (POS): REEMBOLSO SIMPLE (PAGO AL CLIENTE)
     # ========================
 
-    @http.route('/cashdro/payment/pos_refund/start', type='json', auth='user')
+    @http.route('/cashdro/payment/pos_refund/start', type='jsonrpc', auth='user')
     def pos_refund_start(self, payment_method_id=None, amount=None, **kwargs):
         """
         Iniciar un reembolso en CashDro desde la caja.
@@ -598,7 +598,7 @@ class CashdropPaymentController(http.Controller):
     # KIOSK: INICIAR PAGO CASHDRO (fallback cuando el backend no devuelve payment_status)
     # ========================
 
-    @http.route('/cashdro/payment/kiosk/start', auth='public', type='json', csrf=False)
+    @http.route('/cashdro/payment/kiosk/start', auth='public', type='jsonrpc', csrf=False)
     def kiosk_payment_start(self, order_id=None, payment_method_id=None, amount=None, **kwargs):
         """
         Iniciar pago CashDro desde el kiosk cuando el flujo estándar no devuelve payment_status.
@@ -609,6 +609,12 @@ class CashdropPaymentController(http.Controller):
         amount = amount or kwargs.get('amount')
         if not order_id or not payment_method_id:
             return {'success': False, 'error': 'Faltan order_id o payment_method_id'}
+        _logger.info(
+            "Kiosk CashDro start request: order_id=%s payment_method_id=%s amount=%s",
+            order_id,
+            payment_method_id,
+            amount,
+        )
         env = http.request.env
         order = env['pos.order'].sudo().browse(int(order_id))
         if not order.exists():
@@ -654,10 +660,10 @@ class CashdropPaymentController(http.Controller):
             return {'success': False, 'error': str(e)}
 
     # ========================
-    # ENDPOINT: CONFIRMAR PAGO EN KIOSK (type='json' para rpc() del frontend)
+    # ENDPOINT: CONFIRMAR PAGO EN KIOSK (type='jsonrpc' para rpc() del frontend)
     # ========================
 
-    @http.route('/cashdro/payment/kiosk/confirm', auth='public', type='json', csrf=False)
+    @http.route('/cashdro/payment/kiosk/confirm', auth='public', type='jsonrpc', csrf=False)
     def kiosk_payment_confirm_json(self, transaction_id=None, order_id=None, **kwargs):
         """
         Confirmar pago en kiosk (llamado por rpc() desde el frontend).
@@ -667,6 +673,11 @@ class CashdropPaymentController(http.Controller):
         order_id = order_id or kwargs.get('order_id')
         if not transaction_id or not order_id:
             return {'success': False, 'error': 'Parámetros faltantes: transaction_id, order_id'}
+        _logger.info(
+            "Kiosk CashDro confirm request: transaction_id=%s order_id=%s",
+            transaction_id,
+            order_id,
+        )
 
         transaction_model = http.request.env['cashdro.transaction'].sudo()
         transaction = transaction_model.search([('transaction_id', '=', transaction_id)], limit=1)
@@ -707,7 +718,13 @@ class CashdropPaymentController(http.Controller):
                 order.lines._load_pos_self_data_fields(cfg), load=False
             ),
         }
-        _logger.info("Kiosk CashDro paid: order_id=%s, order_sync lines=%s", order_id, len(order_sync['pos.order.line']))
+        _logger.info(
+            "Kiosk CashDro paid: order_id=%s order.amount_total=%s order.amount_paid=%s order_sync_lines=%s",
+            order.id,
+            order.amount_total,
+            order.amount_paid,
+            len(order_sync['pos.order.line']),
+        )
         return {
             'success': True,
             'message': _('Pago confirmado, orden enviada a cocina'),
