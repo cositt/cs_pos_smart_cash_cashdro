@@ -46,14 +46,21 @@ _apply_xml_import_patch()
 from . import models
 from . import controllers
 
-def post_init_hook(cr, registry):
+def post_init_hook(*args):
     """
     Crear permisos ir.model.access para modelos Movimientos (evita XML con RelaxNG conflictivo)
     y parchear constraints de pos_self_order para permitir CashDro en kiosk.
     """
     from odoo import api, SUPERUSER_ID
 
-    env = api.Environment(cr, SUPERUSER_ID, {})
+    # Compatibilidad entre firmas antiguas (cr, registry) y Odoo 19 (env).
+    if len(args) == 1:
+        env = args[0]
+    elif len(args) == 2:
+        cr, _registry = args
+        env = api.Environment(cr, SUPERUSER_ID, {})
+    else:
+        raise TypeError("post_init_hook esperaba (env) o (cr, registry)")
     group_id = env.ref("point_of_sale.group_pos_manager").id
     models_to_access = [
         ("cashdro.caja.movimientos", "Cashdro Caja Movimientos"),
