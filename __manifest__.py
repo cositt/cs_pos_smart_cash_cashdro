@@ -24,6 +24,10 @@
         "pos_self_order_iot",
     ],
     "assets": {
+        "web.assets_backend": [
+            "cs_pos_smart_cash_cashdro/static/src/js/cashdro_form_controller.js",
+            
+        ],
         "pos_self_order.assets": [
             "cs_pos_smart_cash_cashdro/static/src/js/owl_toggler_guard_patch.js",
             "cs_pos_smart_cash_cashdro/static/src/css/cashdrop_pending_dialog.css",
