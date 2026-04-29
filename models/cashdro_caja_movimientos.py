@@ -43,6 +43,19 @@ class CashdroCajaMovimientos(models.TransientModel):
             res['payment_method_id'] = method.id
         return res
 
+    @api.model_create_multi
+    def create(self, vals_list):
+        """
+        Garantiza payment_method_id cuando el registro se crea desde acciones servidor con create({}).
+        """
+        methods = self.env['pos.payment.method'].sudo()
+        preferred = methods.search([('cashdro_enabled', '=', True)], limit=1)
+        fallback = preferred or methods.search([], limit=1)
+        for vals in vals_list:
+            if not vals.get('payment_method_id') and fallback:
+                vals['payment_method_id'] = fallback.id
+        return super().create(vals_list)
+
     def _get_gateway(self):
         self.ensure_one()
         if not self.payment_method_id or not self.payment_method_id.cashdro_enabled:

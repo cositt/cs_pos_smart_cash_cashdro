@@ -8,7 +8,8 @@
             <field name="name">Movimientos</field>
             <field name="model_id" ref="base.model_res_users"/>
             <field name="state">code</field>
-            <field name="code">action = env['cashdro.caja.movimientos'].create({}).action_open_form()</field>
+            <field name="code">method = env['pos.payment.method'].search([('cashdro_enabled','=',True)], limit=1) or env['pos.payment.method'].search([], limit=1)
+action = env['cashdro.caja.movimientos'].create({'payment_method_id': method.id} if method else {}).action_open_form()</field>
         </record>
         <menuitem id="menu_cashdro_movimientos" name="Movimientos" parent="menu_cashdro_root" action="action_cashdro_caja_movimientos" sequence="5"/>
     </data>
