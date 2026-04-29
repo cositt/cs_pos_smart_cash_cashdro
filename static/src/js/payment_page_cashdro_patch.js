@@ -14,21 +14,11 @@ patch(PaymentPage.prototype, {
 
     selectMethod(methodId) {
         const method = this.selfOrder?.models?.["pos.payment.method"]?.get?.(methodId);
-        console.log("[Cashdrop][PaymentPage] selectMethod", {
-            methodId,
-            methodName: method?.name,
-            cashdro_enabled: method?.cashdro_enabled,
-            use_payment_terminal: method?.use_payment_terminal,
-            beforeStateSelection: this.state?.selection,
-        });
 
         this.state.paymentMethodId = methodId;
         if (!method || !method.cashdro_enabled) {
             this.state.selection = false;
         }
-        console.log("[Cashdrop][PaymentPage] selectMethod after state.selection", {
-            stateSelection: this.state?.selection,
-        });
         this.startPayment();
     },
 
@@ -50,7 +40,6 @@ patch(PaymentPage.prototype, {
                 `/kiosk/payment/${this.selfOrder.config.id}/kiosk`,
                 payload
             );
-            console.log("[Cashdrop] RPC Response:", response);
         } catch (error) {
             console.error("[Cashdrop] RPC Error:", error);
             this.selfOrder.handleErrorNotification(error);
@@ -59,7 +48,6 @@ patch(PaymentPage.prototype, {
         }
 
         let ps = response?.payment_status || {};
-        console.log("[Cashdrop] Payment Status:", ps);
 
         // Fallback: si el backend no devolvió payment_status pero tenemos orden y método de pago,
         // intentar iniciar pago CashDro con nuestro endpoint (por si pos_self_order no inyecta payment_status).
@@ -77,22 +65,14 @@ patch(PaymentPage.prototype, {
                     if (startResult?.success && startResult?.payment_status) {
                         ps = startResult.payment_status;
                         response = { ...response, payment_status: ps, order: response.order };
-                        console.log("[Cashdrop] Fallback start OK, payment_status:", ps);
                     }
                 } catch (err) {
-                    console.warn("[Cashdrop] Fallback start failed (method may not be CashDro):", err);
                 }
             }
         }
 
         // ✓ SI ES CASHDROP Y ESTÁ PENDIENTE: mostrar mensaje y delegar en backend la espera/confirmación
         if (ps.is_cashdrop && ps.status === "pending") {
-            console.log("[Cashdrop][PaymentPage] pending cashdro path", {
-                stateSelection: this.state?.selection,
-                paymentMethodId: this.state?.paymentMethodId,
-                selectedPaymentMethod: this.selectedPaymentMethod?.name,
-            });
-            console.log("[Cashdrop] Mostrando mensaje y delegando confirmación al backend");
             this._openCashdropPendingAndConfirm(response);
             return;
         }
@@ -106,7 +86,6 @@ patch(PaymentPage.prototype, {
         }
 
         // ✓ SI NO ES CASHDROP O EL PAGO YA ESTÁ CONFIRMADO: CONTINUAR FLUJO NORMAL
-        console.log("[Cashdrop] Applying success, continuing normal flow");
         await super.startPayment();
     },
 
@@ -227,7 +206,6 @@ patch(PaymentPage.prototype, {
                     try {
                         this.selfOrder.models.connectNewData(result.order_sync);
                     } catch (e) {
-                        console.warn("[Cashdrop] connectNewData order_sync:", e);
                     }
                 }
                 // La API de pos_self_order.notification.add espera (messageString, {type}).
@@ -241,12 +219,6 @@ patch(PaymentPage.prototype, {
                     this.selfOrder.currentOrder?.access_token;
                 const navigate = () => {
                     if (accessToken) {
-                        console.log("[Cashdrop] Navigate to confirmationPage", {
-                            screenMode: "kiosk",
-                            stateSelection: this.state?.selection,
-                            accessTokenPresent: Boolean(accessToken),
-                            accessTokenPrefix: String(accessToken).slice(0, 6),
-                        });
                         // "order" alinea con pos_self_order tras pago terminal (no "pay").
                         this.selfOrder.confirmationPage("order", "kiosk", accessToken);
                     } else {

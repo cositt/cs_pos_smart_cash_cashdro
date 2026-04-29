@@ -208,12 +208,15 @@ class PosPaymentMethod(models.Model):
                 'operation': 'login'
             }
             
+            config = self.env['res.config.settings'].sudo().get_cashdro_config()
+            verify_ssl = bool(config.get('verify_ssl', False))
+
             # Realizar petición
             response = requests.get(
                 url,
                 params=params,
                 timeout=5,
-                verify=False
+                verify=verify_ssl
             )
             
             if response.status_code == 200:
@@ -373,6 +376,8 @@ class PosPaymentMethod(models.Model):
             raise ValidationError(_('Cashdrop no está disponible o no conectado'))
         
         try:
+            config = self.env['res.config.settings'].sudo().get_cashdro_config()
+            verify_ssl = bool(config.get('verify_ssl', False))
             url = f"https://{self.cashdro_host}/Cashdro3WS/index.php"
             params = {
                 'name': self.cashdro_user,
@@ -383,7 +388,7 @@ class PosPaymentMethod(models.Model):
                 'includeLevels': '1'
             }
             
-            response = requests.get(url, params=params, timeout=5, verify=False)
+            response = requests.get(url, params=params, timeout=5, verify=verify_ssl)
             response.raise_for_status()
             
             data = response.json()
