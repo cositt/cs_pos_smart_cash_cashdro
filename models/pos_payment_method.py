@@ -399,3 +399,48 @@ class PosPaymentMethod(models.Model):
         except Exception as e:
             _logger.error(f"Error obteniendo información de piezas: {e}")
             raise ValidationError(_('Error obteniendo información: %s') % str(e))
+
+    @api.model
+    def update_cashdro_status_from_client(self, record_id, status, error_message):
+        """
+        Actualiza el estado de conexión CashDro basado en validación desde cliente.
+        Llamado por JavaScript después de que el navegador intenta conectar.
+        
+        Args:
+            record_id: ID del registro pos.payment.method
+            status: 'connected', 'disconnected', 'error'
+            error_message: Mensaje de error (False si es exitoso)
+        """
+        record = self.browse(record_id)
+        if not record.exists():
+            raise ValueError(f"Record {record_id} not found")
+        
+        record.cashdro_connection_status = status
+        record.cashdro_last_check = fields.Datetime.now()
+        
+        if error_message:
+            record.cashdro_error_message = error_message
+        else:
+            record.cashdro_error_message = False
+        
+        _logger.info(f"CashDro status updated from client: {status} for method {record.name}")
+        return True
+
+    def action_test_connection_client(self):
+        """
+        Validación de CashDro desde el navegador del cliente.
+        Esta acción es interceptada por JavaScript en el navegador
+        y no ejecuta nada en el servidor.
+        """
+        self.ensure_one()
+        
+        if not self.cashdro_enabled:
+            raise ValidationError(_('Cashdrop no está habilitado para este método de pago'))
+        
+        if not self.cashdro_host or not self.cashdro_user or not self.cashdro_password:
+            raise ValidationError(_('Por favor completa Host, Usuario y Contraseña'))
+        
+        # No retornamos ninguna acción - el JavaScript en el navegador
+        # intercepta el botón y ejecuta la validación directamente
+        return True
+
