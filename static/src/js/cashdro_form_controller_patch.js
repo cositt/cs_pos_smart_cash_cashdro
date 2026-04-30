@@ -678,23 +678,47 @@ patch(FormController.prototype, {
         try {
             console.log("[CashDro] Guardando operación en Odoo:", operationData);
             
-            // Usar el nuevo modelo cashdro.operation.log en lugar de cashdro.caja.movimientos
-            const recordId = await this.orm.create('cashdro.operation.log', [{
+            // Validar datos antes de enviar
+            if (!operationData.payment_method_id) {
+                throw new Error("payment_method_id es requerido");
+            }
+            if (!operationData.operation_type) {
+                throw new Error("operation_type es requerido");
+            }
+            
+            // Usar el nuevo modelo cashdro.operation.log
+            const recordData = {
                 payment_method_id: operationData.payment_method_id,
                 operation_type: operationData.operation_type,
                 amount: operationData.amount || 0.0,
                 state: operationData.state || 'completed',
                 cashdro_operation_id: operationData.operation_id || '',
                 concept: operationData.concept || '',
-            }]);
+            };
+            
+            console.log("[CashDro] Datos a enviar:", recordData);
+            
+            const recordId = await this.orm.create('cashdro.operation.log', [recordData]);
             
             console.log("[CashDro] Operación guardada en Odoo con ID:", recordId);
+            this.notification.add(
+                _t("Operación guardada en Odoo correctamente (ID: %s)", recordId),
+                { type: "success" }
+            );
             return recordId;
         } catch (error) {
             console.error("[CashDro] Error guardando en Odoo:", error);
+            // Extraer mensaje de error más detallado
+            let errorMsg = error.message || "Error desconocido";
+            if (error.data && error.data.message) {
+                errorMsg = error.data.message;
+            } else if (error.data && error.data.debug) {
+                errorMsg = error.data.debug.split('\n')[0]; // Primera línea del traceback
+            }
+            
             // No lanzamos error para no interrumpir el flujo, pero notificamos
             this.notification.add(
-                _t("Advertencia: La operación se completó en CashDro pero no se pudo guardar en Odoo: %s", error.message),
+                _t("Advertencia: Operación completada en CashDro pero no guardada en Odoo: %s", errorMsg),
                 { type: "warning", sticky: true }
             );
             return null;

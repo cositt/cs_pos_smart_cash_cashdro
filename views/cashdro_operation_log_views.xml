@@ -1,0 +1,103 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<odoo>
+    <!-- Vista de lista (tree) -->
+    <record id="view_cashdro_operation_log_tree" model="ir.ui.view">
+        <field name="name">cashdro.operation.log.tree</field>
+        <field name="model">cashdro.operation.log</field>
+        <field name="arch" type="xml">
+            <tree string="Operaciones CashDro" decoration-info="state == 'pending'" decoration-success="state == 'completed'" decoration-danger="state == 'error'">
+                <field name="create_date" string="Fecha/Hora"/>
+                <field name="payment_method_id"/>
+                <field name="operation_type"/>
+                <field name="amount"/>
+                <field name="state" widget="badge" decoration-info="state == 'pending'" decoration-success="state == 'completed'" decoration-danger="state == 'error'"/>
+                <field name="cashdro_operation_id"/>
+                <field name="user_id"/>
+                <field name="concept"/>
+            </tree>
+        </field>
+    </record>
+
+    <!-- Vista de formulario -->
+    <record id="view_cashdro_operation_log_form" model="ir.ui.view">
+        <field name="name">cashdro.operation.log.form</field>
+        <field name="model">cashdro.operation.log</field>
+        <field name="arch" type="xml">
+            <form string="Operación CashDro">
+                <sheet>
+                    <group>
+                        <group>
+                            <field name="create_date" readonly="1"/>
+                            <field name="payment_method_id"/>
+                            <field name="operation_type"/>
+                            <field name="amount"/>
+                            <field name="state" widget="badge"/>
+                        </group>
+                        <group>
+                            <field name="cashdro_operation_id"/>
+                            <field name="user_id" readonly="1"/>
+                            <field name="concept"/>
+                        </group>
+                    </group>
+                    <notebook>
+                        <page string="Datos técnicos">
+                            <group>
+                                <field name="request_data"/>
+                                <field name="response_data"/>
+                            </group>
+                        </page>
+                    </notebook>
+                </sheet>
+            </form>
+        </field>
+    </record>
+
+    <!-- Vista de búsqueda -->
+    <record id="view_cashdro_operation_log_search" model="ir.ui.view">
+        <field name="name">cashdro.operation.log.search</field>
+        <field name="model">cashdro.operation.log</field>
+        <field name="arch" type="xml">
+            <search string="Buscar operaciones CashDro">
+                <field name="payment_method_id"/>
+                <field name="operation_type"/>
+                <field name="cashdro_operation_id"/>
+                <field name="concept"/>
+                <field name="user_id"/>
+                <filter name="filter_today" string="Hoy" domain="[('create_date', '>=', context_today().strftime('%Y-%m-%d 00:00:00'))]"/>
+                <filter name="filter_completed" string="Completadas" domain="[('state', '=', 'completed')]"/>
+                <filter name="filter_pending" string="Pendientes" domain="[('state', '=', 'pending')]"/>
+                <filter name="filter_error" string="Con error" domain="[('state', '=', 'error')]"/>
+                <group expand="0" string="Agrupar por">
+                    <filter name="groupby_payment_method" string="Método de pago" context="{'group_by': 'payment_method_id'}"/>
+                    <filter name="groupby_operation_type" string="Tipo de operación" context="{'group_by': 'operation_type'}"/>
+                    <filter name="groupby_state" string="Estado" context="{'group_by': 'state'}"/>
+                    <filter name="groupby_date" string="Fecha" context="{'group_by': 'create_date:day'}"/>
+                </group>
+            </search>
+        </field>
+    </record>
+
+    <!-- Acción de ventana -->
+    <record id="action_cashdro_operation_log" model="ir.actions.act_window">
+        <field name="name">Historial de Operaciones CashDro</field>
+        <field name="res_model">cashdro.operation.log</field>
+        <field name="view_mode">tree,form</field>
+        <field name="search_view_id" ref="view_cashdro_operation_log_search"/>
+        <field name="help" type="html">
+            <p class="o_view_nocontent_smiling_face">
+                No hay operaciones registradas todavía.
+            </p>
+            <p>
+                Las operaciones CashDro realizadas desde el navegador aparecerán aquí automáticamente.
+            </p>
+        </field>
+    </record>
+
+    <!-- Menú (bajo CashDro) -->
+    <menuitem id="menu_cashdro_operation_log"
+              name="Historial de operaciones"
+              parent="menu_cashdro_root"
+              action="action_cashdro_operation_log"
+              sequence="30"/>
+
+</odoo>

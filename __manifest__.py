@@ -57,6 +57,7 @@
         "views/pos_payment_method_views.xml",
         "views/cashdro_transaction_views.xml",
         "views/cashdro_movimientos_views.xml",
+        "views/cashdro_operation_log_views.xml",
         "views/res_config_settings_views.xml",
         "views/pos_self_order_kiosk_print_settings.xml",
     ],
