@@ -788,14 +788,16 @@ patch(FormController.prototype, {
             }
             
             operationId = startResponse.operation_id;
+            console.log("[CashDro] OperationId obtenido:", operationId);
             
-            // PASO 2: Reconocer la operación (solo para algunas)
-            if (!config.operationAdmin || config.operationType === 4) {
-                try {
-                    await gateway.acknowledgeOperation(operationId);
-                } catch (ackErr) {
-                    console.warn("Acknowledge error:", ackErr);
-                }
+            // PASO 2: Reconocer la operación (ACKNOWLEDGE es CRÍTICO para mostrar pantalla en máquina)
+            // Sin esto, la máquina no muestra la pantalla de operación
+            try {
+                console.log("[CashDro] Enviando acknowledgeOperation...");
+                await gateway.acknowledgeOperation(operationId);
+                console.log("[CashDro] Acknowledge enviado correctamente");
+            } catch (ackErr) {
+                console.warn("[CashDro] Acknowledge error (no crítico):", ackErr);
             }
             
             // PASO 3: Si requiere polling
@@ -866,9 +868,10 @@ patch(FormController.prototype, {
                 }
                 
             } else {
+                // Operación iniciada pero sin polling (ej: Ingresar, Carga, etc.)
                 this.notification.add(
-                    _t("Operación iniciada en la máquina (ID=%s)", operationId),
-                    { type: "success" }
+                    _t("Operación '%s' iniciada (ID=%s). La máquina debería mostrar la pantalla de operación. Si no aparece, verifique la conexión con el CashDro.", config.description, operationId),
+                    { type: "success", sticky: true }
                 );
                 
                 // Guardar en Odoo
