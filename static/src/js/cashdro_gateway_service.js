@@ -72,6 +72,41 @@ export class CashdroGatewayService {
     }
 
     /**
+     * Realiza una petición POST al endpoint del CashDro.
+     * @param {string} endpoint - URL completa (index.php)
+     * @param {object} params - Parámetros en body
+     * @returns {Promise<object>} Respuesta parseada JSON
+     */
+    async _requestPost(endpoint, params) {
+        const queryString = new URLSearchParams(params).toString();
+        const url = `${endpoint}?${queryString}`;  // CashDro espera params en URL incluso en POST
+        
+        try {
+            const response = await fetch(url, {
+                method: "POST",
+                headers: {
+                    "Content-Type": "application/x-www-form-urlencoded",
+                },
+                mode: "cors",
+                credentials: "omit",
+                signal: AbortSignal.timeout(this.timeout),
+            });
+            
+            if (!response.ok) {
+                throw new Error(`HTTP ${response.status}: ${response.statusText}`);
+            }
+            
+            const data = await response.json();
+            return data;
+        } catch (error) {
+            if (error.name === 'AbortError') {
+                throw new Error(_t("Timeout conectando a CashDro (más de %ds)", Math.floor(this.timeout / 1000)));
+            }
+            throw error;
+        }
+    }
+
+    /**
      * Login en el endpoint index3.php.
      * Valida que las credenciales sean válidas.
      */
@@ -295,7 +330,7 @@ export class CashdroGatewayService {
 
     /**
      * Reconoce una operación (muestra la pantalla en la máquina).
-     * DEPRECATED: en algunos casos causa finalización prematura.
+     * Usa index3.php (endpoint de pagos).
      */
     async acknowledgeOperation(operationId) {
         const params = {
@@ -307,6 +342,23 @@ export class CashdroGatewayService {
         };
         
         const data = await this._request(this.endpoint, params);
+        return data;
+    }
+
+    /**
+     * Reconoce una operación administrativa (muestra la pantalla en la máquina).
+     * Usa index.php (endpoint de administración) - CRÍTICO para Ingresar, Carga, etc.
+     */
+    async acknowledgeOperationAdmin(operationId) {
+        const params = {
+            operation: 'acknowledgeOperationId',
+            name: this.user,
+            password: this.password,
+            operationId: operationId,
+        };
+        
+        // Usar POST como en el Python original (_request_post)
+        const data = await this._requestPost(this.endpointAdmin, params);
         return data;
     }
 

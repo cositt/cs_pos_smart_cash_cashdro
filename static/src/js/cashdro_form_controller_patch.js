@@ -794,7 +794,17 @@ patch(FormController.prototype, {
             // Sin esto, la máquina no muestra la pantalla de operación
             try {
                 console.log("[CashDro] Enviando acknowledgeOperation...");
-                await gateway.acknowledgeOperation(operationId);
+                
+                // Para operaciones administrativas (Ingresar, Carga, etc.) usar acknowledgeOperationAdmin
+                // que usa POST a index.php como en el código Python original
+                if (config.operationAdmin) {
+                    console.log("[CashDro] Usando acknowledgeOperationAdmin (POST a index.php)");
+                    await gateway.acknowledgeOperationAdmin(operationId);
+                } else {
+                    console.log("[CashDro] Usando acknowledgeOperation (GET a index3.php)");
+                    await gateway.acknowledgeOperation(operationId);
+                }
+                
                 console.log("[CashDro] Acknowledge enviado correctamente");
             } catch (ackErr) {
                 console.warn("[CashDro] Acknowledge error (no crítico):", ackErr);
