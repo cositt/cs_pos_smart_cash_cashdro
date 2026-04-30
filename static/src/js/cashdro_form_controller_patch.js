@@ -730,7 +730,37 @@ patch(FormController.prototype, {
      */
     async _executeOperationWithPolling(gateway, config, formData) {
         let operationId = null;
-        const paymentMethodId = formData.payment_method_id?.[0] || this.env?.context?.default_payment_method_id;
+        
+        // DEBUG: Ver qué tenemos en formData
+        console.log("[CashDro DEBUG] formData:", formData);
+        console.log("[CashDro DEBUG] env.context:", this.env?.context);
+        
+        // Obtener payment_method_id de múltiples fuentes
+        let paymentMethodId = null;
+        
+        // Fuente 1: formData.payment_method_id (formato [id, name])
+        if (formData.payment_method_id) {
+            if (Array.isArray(formData.payment_method_id)) {
+                paymentMethodId = formData.payment_method_id[0];
+            } else if (typeof formData.payment_method_id === 'number') {
+                paymentMethodId = formData.payment_method_id;
+            }
+        }
+        
+        // Fuente 2: Contexto del wizard
+        if (!paymentMethodId && this.env?.context?.default_payment_method_id) {
+            paymentMethodId = this.env.context.default_payment_method_id;
+        }
+        
+        // Fuente 3: Buscar en el modelo root
+        if (!paymentMethodId && this.model?.root?.data?.payment_method_id) {
+            const pm = this.model.root.data.payment_method_id;
+            if (Array.isArray(pm)) paymentMethodId = pm[0];
+            else if (typeof pm === 'number') paymentMethodId = pm;
+        }
+        
+        console.log("[CashDro DEBUG] paymentMethodId obtenido:", paymentMethodId);
+        
         const amount = config.requiresAmount ? formData[config.amountField] : 0;
         
         try {
@@ -775,14 +805,18 @@ patch(FormController.prototype, {
                 this.notification.add(_t("Operación completada"), { type: "success" });
                 
                 // PASO 3b: Guardar resultado en Odoo después de completar
-                await this._saveOperationToOdoo({
-                    payment_method_id: paymentMethodId,
-                    operation_type: this._getOperationTypeName(config.operationType),
-                    amount: amount,
-                    state: 'completed',
-                    operation_id: operationId,
-                    concept: config.description,
-                });
+                if (paymentMethodId) {
+                    await this._saveOperationToOdoo({
+                        payment_method_id: paymentMethodId,
+                        operation_type: this._getOperationTypeName(config.operationType),
+                        amount: amount,
+                        state: 'completed',
+                        operation_id: operationId,
+                        concept: config.description,
+                    });
+                } else {
+                    console.warn("[CashDro] No se guardó en Odoo: falta payment_method_id");
+                }
                 
             } else if (config.applyDepositLevels) {
                 // Especial: aplicar fianza
@@ -790,14 +824,16 @@ patch(FormController.prototype, {
                 this.notification.add(_t("Fianza aplicada correctamente"), { type: "success" });
                 
                 // Guardar en Odoo
-                await this._saveOperationToOdoo({
-                    payment_method_id: paymentMethodId,
-                    operation_type: 'fianza',
-                    amount: 0,
-                    state: 'completed',
-                    operation_id: operationId || '',
-                    concept: config.description,
-                });
+                if (paymentMethodId) {
+                    await this._saveOperationToOdoo({
+                        payment_method_id: paymentMethodId,
+                        operation_type: 'fianza',
+                        amount: 0,
+                        state: 'completed',
+                        operation_id: operationId || '',
+                        concept: config.description,
+                    });
+                }
                 
             } else if (config.webInterface) {
                 // Abrir interfaz web
@@ -811,14 +847,16 @@ patch(FormController.prototype, {
                 );
                 
                 // Guardar en Odoo
-                await this._saveOperationToOdoo({
-                    payment_method_id: paymentMethodId,
-                    operation_type: this._getOperationTypeName(config.operationType),
-                    amount: 0,
-                    state: 'pending',
-                    operation_id: operationId,
-                    concept: config.description,
-                });
+                if (paymentMethodId) {
+                    await this._saveOperationToOdoo({
+                        payment_method_id: paymentMethodId,
+                        operation_type: this._getOperationTypeName(config.operationType),
+                        amount: 0,
+                        state: 'pending',
+                        operation_id: operationId,
+                        concept: config.description,
+                    });
+                }
                 
             } else {
                 this.notification.add(
@@ -827,14 +865,18 @@ patch(FormController.prototype, {
                 );
                 
                 // Guardar en Odoo
-                await this._saveOperationToOdoo({
-                    payment_method_id: paymentMethodId,
-                    operation_type: this._getOperationTypeName(config.operationType),
-                    amount: amount || 0,
-                    state: 'completed',
-                    operation_id: operationId,
-                    concept: config.description,
-                });
+                if (paymentMethodId) {
+                    await this._saveOperationToOdoo({
+                        payment_method_id: paymentMethodId,
+                        operation_type: this._getOperationTypeName(config.operationType),
+                        amount: amount || 0,
+                        state: 'completed',
+                        operation_id: operationId,
+                        concept: config.description,
+                    });
+                } else {
+                    console.warn("[CashDro] Operación completada pero no guardada: falta payment_method_id");
+                }
             }
             
             // PASO 4: Finalizar (si aplica)
