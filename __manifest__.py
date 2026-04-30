@@ -35,6 +35,7 @@
             "cs_pos_smart_cash_cashdro/static/src/js/cashdrop_pending_dialog.js",
             "cs_pos_smart_cash_cashdro/static/src/js/cashdrop_pending_dialog.xml",
             "cs_pos_smart_cash_cashdro/static/src/js/payment_page_cashdro_icon.xml",
+            "cs_pos_smart_cash_cashdro/static/src/app/self_order/cashdro_kiosk_service.js",
             "cs_pos_smart_cash_cashdro/static/src/js/payment_page_cashdro_patch.js",
             "cs_pos_smart_cash_cashdro/static/src/js/self_order_cashdro_patch.js",
             "cs_pos_smart_cash_cashdro/static/src/js/owl_error_boundary_cashdro.js",
