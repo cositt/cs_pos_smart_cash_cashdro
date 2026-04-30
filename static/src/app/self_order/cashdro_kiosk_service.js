@@ -402,17 +402,45 @@ export class CashdroKioskService {
 }
 
 /**
- * Factory para crear instancias del servicio.
+ * Factory para crear instancias del servicio (ASÍNCRONA).
+ * 
+ * Es asíncrona porque puede necesitar hacer RPC para obtener los campos CashDro
+ * si no están cargados en el modelo del quiosco.
  */
-export function createCashdroKioskService(selfOrder, paymentMethodId) {
-    const paymentMethod = selfOrder.models?.["pos.payment.method"]?.get?.(paymentMethodId);
+export async function createCashdroKioskService(selfOrder, paymentMethodId) {
+    let paymentMethod = selfOrder.models?.["pos.payment.method"]?.get?.(paymentMethodId);
     
     if (!paymentMethod || !paymentMethod.cashdro_enabled) {
         throw new Error(_t("Método de pago CashDro no válido"));
     }
     
+    // Si no tenemos los campos de configuración, los obtenemos del servidor
     if (!paymentMethod.cashdro_host || !paymentMethod.cashdro_user || !paymentMethod.cashdro_password) {
-        throw new Error(_t("Método de pago CashDro no configurado correctamente"));
+        console.log("[CashDro Kiosk] Campos no cargados, obteniendo configuración del servidor...");
+        
+        try {
+            const result = await rpc("/cashdro/config/get", {
+                payment_method_id: paymentMethodId,
+            });
+            
+            if (!result.success) {
+                throw new Error(result.error || _t("No se pudo obtener configuración CashDro"));
+            }
+            
+            // Crear objeto con los datos del servidor
+            paymentMethod = {
+                ...paymentMethod,
+                cashdro_host: result.cashdro_host,
+                cashdro_user: result.cashdro_user,
+                cashdro_password: result.cashdro_password,
+                cashdro_enabled: true,
+            };
+            
+            console.log("[CashDro Kiosk] Configuración obtenida del servidor");
+        } catch (error) {
+            console.error("[CashDro Kiosk] Error obteniendo configuración:", error);
+            throw new Error(_t("Método de pago CashDro no configurado correctamente"));
+        }
     }
     
     return new CashdroKioskService(selfOrder, paymentMethod);

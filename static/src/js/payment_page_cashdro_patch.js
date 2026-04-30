@@ -44,8 +44,8 @@ patch(PaymentPage.prototype, {
         console.log("[CashDro Kiosk] Iniciando pago con nuevo flujo JavaScript");
         
         try {
-            // Crear servicio CashDro
-            const cashdroService = createCashdroKioskService(this.selfOrder, this.state.paymentMethodId);
+            // Crear servicio CashDro (asíncrono - puede hacer RPC para obtener config)
+            const cashdroService = await createCashdroKioskService(this.selfOrder, this.state.paymentMethodId);
             
             // Obtener datos de la orden
             const order = this.selfOrder.currentOrder;

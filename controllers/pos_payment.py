@@ -898,3 +898,57 @@ class CashdropPaymentController(http.Controller):
             ),
         }
 
+    # ========================
+    # ENDPOINT: OBTENER CONFIGURACIÓN CASHDRO (para quiosco)
+    # ========================
+
+    @http.route('/cashdro/config/get', auth='public', type='jsonrpc', csrf=False)
+    def get_cashdro_config(self, payment_method_id=None, **kwargs):
+        """
+        Obtener configuración CashDro de un método de pago.
+        
+        Este endpoint es llamado desde el JavaScript del quiosco cuando
+        los campos de configuración no están cargados en el modelo local.
+        
+        Request:
+        {
+            "payment_method_id": 5
+        }
+        
+        Response:
+        {
+            "success": true,
+            "cashdro_host": "10.0.1.140",
+            "cashdro_user": "admin",
+            "cashdro_password": "secret"
+        }
+        """
+        try:
+            _logger.info("Get CashDro config: payment_method_id=%s", payment_method_id)
+            
+            if not payment_method_id:
+                return {'success': False, 'error': 'payment_method_id requerido'}
+            
+            # Buscar método de pago
+            payment_method = http.request.env['pos.payment.method'].sudo().browse(int(payment_method_id))
+            if not payment_method.exists():
+                return {'success': False, 'error': 'Método de pago no encontrado'}
+            
+            if not payment_method.cashdro_enabled:
+                return {'success': False, 'error': 'Método de pago no tiene CashDro habilitado'}
+            
+            # Verificar que tenga configuración
+            if not payment_method.cashdro_host or not payment_method.cashdro_user:
+                return {'success': False, 'error': 'Método de pago CashDro no configurado'}
+            
+            return {
+                'success': True,
+                'cashdro_host': payment_method.cashdro_host,
+                'cashdro_user': payment_method.cashdro_user,
+                'cashdro_password': payment_method.cashdro_password or '',
+            }
+            
+        except Exception as e:
+            _logger.exception("Error en get_cashdro_config")
+            return {'success': False, 'error': str(e)}
+
