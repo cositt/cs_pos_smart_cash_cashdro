@@ -428,13 +428,17 @@ export async function createCashdroKioskService(selfOrder, paymentMethodId) {
             }
             
             // Crear objeto con los datos del servidor
+            // Preservar el ID explícitamente ya que puede estar en un Proxy
+            const pmId = paymentMethod.id || paymentMethodId;
             paymentMethod = {
-                ...paymentMethod,
+                id: pmId,
+                name: paymentMethod.name || paymentMethod.display_name || 'CashDro',
                 cashdro_host: result.cashdro_host,
                 cashdro_user: result.cashdro_user,
                 cashdro_password: result.cashdro_password,
                 cashdro_enabled: true,
             };
+            console.log("[CashDro Kiosk] PaymentMethod creado con ID:", pmId);
             
             console.log("[CashDro Kiosk] Configuración obtenida del servidor");
         } catch (error) {
