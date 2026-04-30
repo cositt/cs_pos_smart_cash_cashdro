@@ -163,14 +163,14 @@ export class PaymentCashdro extends PaymentInterface {
     }
 
     /**
-     * Obtiene resumen de la máquina directamente (sin pasar por servidor).
+     * Detecta si el navegador puede alcanzar directamente al CashDro.
+     * Si no puede (error de red), usa el servidor como proxy.
      */
-    async _getMachineSummary() {
+    async _canReachCashdroDirectly() {
         try {
             const config = await this._getCashdroConfig();
             const gatewayUrl = this._buildGatewayUrl(config.host);
 
-            // Probar conexión con getMainCurrency
             const params = {
                 operation: 'getMainCurrency',
                 name: config.user,
@@ -188,25 +188,45 @@ export class PaymentCashdro extends PaymentInterface {
                 signal: AbortSignal.timeout(5000),
             });
 
-            const connected = response.ok;
-            let errorMessage = "";
-
-            if (!connected) {
-                errorMessage = _t("No se pudo conectar al CashDro");
-            }
-
-            return {
-                success: true,
-                connection_status: connected ? "connected" : "error",
-                error_message: errorMessage,
-            };
+            return response.ok;
         } catch (e) {
-            return {
-                success: true,
-                connection_status: "error",
-                error_message: e.message || _t("Error de conexión"),
-            };
+            console.log("[CashDro POS] No se puede alcanzar CashDro directamente:", e.message);
+            return false;
         }
+    }
+
+    /**
+     * Obtiene resumen de la máquina.
+     * Si puede conectar directamente, lo hace desde JavaScript.
+     * Si no puede, usa el servidor como proxy.
+     */
+    async _getMachineSummary() {
+        const canReachDirectly = await this._canReachCashdroDirectly();
+        this._useDirectConnection = canReachDirectly;
+
+        if (!canReachDirectly) {
+            console.log("[CashDro POS] Usando servidor como proxy para CashDro");
+            // Usar el endpoint del servidor (flujo antiguo)
+            try {
+                const summary = await rpc("/cashdro/payment/pos/summary", {
+                    payment_method_id: this.payment_method_id.id,
+                });
+                return summary;
+            } catch (e) {
+                return {
+                    success: true,
+                    connection_status: "error",
+                    error_message: e.message || _t("Error de conexión vía servidor"),
+                };
+            }
+        }
+
+        // Conexión directa funcionó
+        return {
+            success: true,
+            connection_status: "connected",
+            error_message: "",
+        };
     }
 
     async _askMachineSummary() {
@@ -299,29 +319,16 @@ export class PaymentCashdro extends PaymentInterface {
                 return true;
             }
 
-            // Cobro normal: flujo JavaScript directo al CashDro
-            console.log("[CashDro POS] Iniciando pago directo desde JavaScript...");
-
-            // 1. Iniciar operación en CashDro
-            const operationId = await this._startCashdroPayment(amount);
-            console.log("[CashDro POS] OperationId obtenido:", operationId);
-
-            if (!operationId) {
-                this._showError(_t("No se pudo iniciar el pago en CashDro."));
-                line.setPaymentStatus("retry");
-                return false;
+            // Determinar si usamos conexión directa o servidor como proxy
+            if (this._useDirectConnection) {
+                // Flujo JavaScript directo al CashDro (el navegador está en la misma red)
+                console.log("[CashDro POS] Usando conexión directa al CashDro...");
+                return await this._sendPaymentDirect(line, amount);
+            } else {
+                // Flujo vía servidor (el navegador NO puede alcanzar al CashDro directamente)
+                console.log("[CashDro POS] Usando servidor como proxy para CashDro...");
+                return await this._sendPaymentViaServer(line, amount, order);
             }
-
-            // 2. Guardar operationId y hacer polling
-            line.uiState = line.uiState || {};
-            line.uiState.cashdroOperationId = operationId;
-
-            // 3. Enviar acknowledge
-            await this._acknowledgeOperation(operationId);
-            console.log("[CashDro POS] Acknowledge enviado");
-
-            // 4. Esperar pago con polling
-            return await this._waitForPayment(line, operationId, amount);
 
         } catch (e) {
             console.error("[CashDro POS] Error:", e);
@@ -331,6 +338,63 @@ export class PaymentCashdro extends PaymentInterface {
             line.setPaymentStatus("retry");
             return false;
         }
+    }
+
+    /**
+     * Flujo de pago directo al CashDro desde JavaScript.
+     * Usado cuando el navegador está en la misma red que el CashDro.
+     */
+    async _sendPaymentDirect(line, amount) {
+        // 1. Iniciar operación en CashDro
+        const operationId = await this._startCashdroPayment(amount);
+        console.log("[CashDro POS] OperationId obtenido:", operationId);
+
+        if (!operationId) {
+            this._showError(_t("No se pudo iniciar el pago en CashDro."));
+            line.setPaymentStatus("retry");
+            return false;
+        }
+
+        // 2. Guardar operationId y hacer polling
+        line.uiState = line.uiState || {};
+        line.uiState.cashdroOperationId = operationId;
+
+        // 3. Enviar acknowledge
+        await this._acknowledgeOperation(operationId);
+        console.log("[CashDro POS] Acknowledge enviado");
+
+        // 4. Esperar pago con polling
+        return await this._waitForPayment(line, operationId, amount);
+    }
+
+    /**
+     * Flujo de pago vía servidor (proxy).
+     * Usado cuando el navegador NO puede alcanzar al CashDro directamente.
+     * El servidor hace las peticiones al CashDro en nombre del navegador.
+     */
+    async _sendPaymentViaServer(line, amount, order) {
+        const posOrderId = order.id || order.server_id || null;
+
+        // 1. Iniciar pago vía servidor
+        const result = await rpc("/cashdro/payment/pos/start", {
+            payment_method_id: this.payment_method_id.id,
+            amount,
+            pos_session_id: this.pos.session?.id || null,
+            pos_order_id: posOrderId,
+        });
+
+        if (!result || !result.success) {
+            this._showError(result?.error || _t("Error al iniciar pago en CashDro."));
+            line.setPaymentStatus("retry");
+            return false;
+        }
+
+        const transactionId = result.transaction_id;
+        line.uiState = line.uiState || {};
+        line.uiState.cashdroTransactionId = transactionId;
+
+        // 2. Esperar pago con polling vía servidor
+        return await this._waitForPaymentViaServer(line, transactionId);
     }
 
     async _waitForPayment(line, operationId, amount) {
@@ -407,6 +471,88 @@ export class PaymentCashdro extends PaymentInterface {
                     }
                 } catch (e) {
                     console.error("[CashDro POS] Error en polling:", e);
+                    setTimeout(tick, POLLING_INTERVAL_MS);
+                }
+            };
+            setTimeout(tick, POLLING_INTERVAL_MS);
+        });
+    }
+
+    /**
+     * Espera pago vía servidor (flujo antiguo/proxy).
+     * Usado cuando el navegador no puede alcanzar al CashDro directamente.
+     */
+    async _waitForPaymentViaServer(line, transactionId) {
+        const startedAt = Date.now();
+        console.log("[CashDro POS] Polling vía servidor para transacción:", transactionId);
+
+        return new Promise((resolve) => {
+            const tick = async () => {
+                const stillWaiting =
+                    !line.isDone() &&
+                    ["waiting", "waitingCard", "timeout"].includes(line.getPaymentStatus?.() || line.payment_status) &&
+                    (line.uiState?.cashdroTransactionId === transactionId);
+
+                if (!stillWaiting) {
+                    console.log("[CashDro POS] Polling detenido, estado:", line.getPaymentStatus?.());
+                    resolve((line.getPaymentStatus?.() || line.payment_status) === "done");
+                    return;
+                }
+
+                if (Date.now() - startedAt > POLLING_TIMEOUT_MS) {
+                    console.log("[CashDro POS] Timeout de polling vía servidor");
+                    line.setPaymentStatus("timeout");
+                    this._showError(
+                        _t("Tiempo de espera agotado esperando confirmación de pago en CashDro.")
+                    );
+                    resolve(false);
+                    return;
+                }
+
+                try {
+                    // Consultar estado vía servidor
+                    const status = await rpc("/cashdro/payment/pos/status", {
+                        transaction_id: transactionId,
+                    });
+
+                    if (!status || !status.success) {
+                        setTimeout(tick, POLLING_INTERVAL_MS);
+                        return;
+                    }
+
+                    const txStatus = status.status;
+                    console.log("[CashDro POS] Estado vía servidor:", txStatus);
+
+                    if (txStatus === "confirmed") {
+                        // Confirmar pago vía servidor
+                        const confirm = await rpc("/cashdro/payment/pos/confirm", {
+                            transaction_id: transactionId,
+                        });
+
+                        if (!confirm || !confirm.success) {
+                            this._showError(
+                                confirm?.error || _t("Error confirmando el pago en CashDro.")
+                            );
+                            line.setPaymentStatus("retry");
+                            resolve(false);
+                            return;
+                        }
+
+                        line.setPaymentStatus("done");
+                        line.transaction_id = transactionId;
+                        resolve(true);
+                    } else if (["cancelled", "error", "timeout"].includes(txStatus)) {
+                        this._showError(
+                            status.message || _t("El pago ha sido cancelado o ha fallado.")
+                        );
+                        line.setPaymentStatus("retry");
+                        resolve(false);
+                    } else {
+                        // Seguir esperando (pending, processing)
+                        setTimeout(tick, POLLING_INTERVAL_MS);
+                    }
+                } catch (e) {
+                    console.error("[CashDro POS] Error en polling vía servidor:", e);
                     setTimeout(tick, POLLING_INTERVAL_MS);
                 }
             };
