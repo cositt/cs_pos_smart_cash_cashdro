@@ -60,29 +60,13 @@ class CashdroMovimientoPagoWizard(models.TransientModel):
         }
 
     def action_execute(self):
+        """Ejecuta venta desde JavaScript (cashdro_gateway_service.js)."""
         self.ensure_one()
         if self.amount <= 0:
             raise UserError(_('El importe debe ser mayor que 0.'))
-        try:
-            gateway = _get_gateway_from_method(self.env, self.payment_method_id.id)
-            # type=4 = VENTA/COBRO (cobro_20centimos_FUNCIONA.py). index3.php + acknowledge.
-            gateway.start_operation(self.amount, operation_type=4)
-            return self._notify_and_close(_('Venta iniciada: %.2f €. Inserte dinero en la máquina.') % self.amount)
-        except Exception as e:
-            _logger.exception("CashDro Venta falló")
-            msg = str(e)
-            if not msg:
-                msg = _('Error desconocido. Revisa logs de Odoo.')
-            return {
-                'type': 'ir.actions.client',
-                'tag': 'display_notification',
-                'params': {
-                    'title': _('Error CashDro'),
-                    'message': msg,
-                    'type': 'danger',
-                    'sticky': True,
-                },
-            }
+        if not self.payment_method_id or not self.payment_method_id.cashdro_enabled:
+            raise UserError(_('Método de pago CashDro no válido o no habilitado.'))
+        return True
 
 
 class CashdroMovimientoDevolucionWizard(models.TransientModel):
@@ -111,13 +95,13 @@ class CashdroMovimientoDevolucionWizard(models.TransientModel):
         }
 
     def action_execute(self):
+        """Ejecuta pago/devolución desde JavaScript (cashdro_gateway_service.js)."""
         self.ensure_one()
         if self.amount <= 0:
             raise UserError(_('El importe debe ser mayor que 0.'))
-        gateway = _get_gateway_from_method(self.env, self.payment_method_id.id)
-        # type=3 = DEVOLUCIÓN/DISPENSA (payOutProgress). La máquina dispensará el importe.
-        gateway.start_operation(self.amount, operation_type=3)
-        return self._notify_and_close(_('Pago iniciado: %.2f €. La máquina dispensará.') % self.amount)
+        if not self.payment_method_id or not self.payment_method_id.cashdro_enabled:
+            raise UserError(_('Método de pago CashDro no válido o no habilitado.'))
+        return True
 
 
 class CashdroMovimientoCargaWizard(models.TransientModel):
@@ -145,12 +129,11 @@ class CashdroMovimientoCargaWizard(models.TransientModel):
         }
 
     def action_execute(self):
+        """Ejecuta carga desde JavaScript (cashdro_gateway_service.js)."""
         self.ensure_one()
-        gateway = _get_gateway_from_method(self.env, self.payment_method_id.id)
-        # type=16 = INGRESAR genérico (movimientos_funcionan/ingresar_generico.py).
-        # startLoadMoney: startOperation(type=16) + acknowledgeOperationId → máquina entra en modo "cargando".
-        gateway.start_load_money(alias_id='', is_manual='0', parameters='')
-        return self._notify_and_close(_('Carga iniciada. Inserte dinero en la máquina (ingreso genérico, type=16).'))
+        if not self.payment_method_id or not self.payment_method_id.cashdro_enabled:
+            raise UserError(_('Método de pago CashDro no válido o no habilitado.'))
+        return True
 
 
 class CashdroMovimientoIngresoImporteWizard(models.TransientModel):
@@ -180,13 +163,13 @@ class CashdroMovimientoIngresoImporteWizard(models.TransientModel):
         }
 
     def action_execute(self):
+        """Ejecuta ingreso por importe desde JavaScript (cashdro_gateway_service.js)."""
         self.ensure_one()
         if self.amount <= 0:
             raise UserError(_('El importe debe ser mayor que 0.'))
-        gateway = _get_gateway_from_method(self.env, self.payment_method_id.id)
-        # type=17 = Ingreso por importe (doc 5.6). parameters={"amount": "<amount>"} con amount en céntimos.
-        gateway.start_operation(self.amount, operation_type=17)
-        return self._notify_and_close(_('Ingreso por importe iniciado: %.2f €. Inserte dinero en la máquina.') % self.amount)
+        if not self.payment_method_id or not self.payment_method_id.cashdro_enabled:
+            raise UserError(_('Método de pago CashDro no válido o no habilitado.'))
+        return True
 
 
 class CashdroMovimientoInicializarWizard(models.TransientModel):
@@ -211,12 +194,11 @@ class CashdroMovimientoInicializarWizard(models.TransientModel):
         }
 
     def action_execute(self):
+        """Ejecuta inicializar niveles desde JavaScript (cashdro_gateway_service.js)."""
         self.ensure_one()
-        gateway = _get_gateway_from_method(self.env, self.payment_method_id.id)
-        # Usa el flujo completo de inicialización de niveles (type=12) probado contra la máquina:
-        # startOperation → acknowledge → askOperation → finishOperation.
-        gateway.initialize_levels()
-        return self._notify_and_close(_('Inicializar niveles ejecutado. Consulte Estado de la caja para ver los nuevos niveles.'))
+        if not self.payment_method_id or not self.payment_method_id.cashdro_enabled:
+            raise UserError(_('Método de pago CashDro no válido o no habilitado.'))
+        return True
 
 
 class CashdroMovimientoCargaOperacionWizard(models.TransientModel):
@@ -239,20 +221,11 @@ class CashdroMovimientoCargaOperacionWizard(models.TransientModel):
         return res
 
     def action_iniciar_carga(self):
+        """Ejecuta carga desde JavaScript (cashdro_gateway_service.js)."""
         self.ensure_one()
-        gateway = _get_gateway_from_method(self.env, self.payment_method_id.id)
-        gateway.start_carga(alias_id='')
-        return {
-            'type': 'ir.actions.client',
-            'tag': 'display_notification',
-            'params': {
-                'title': _('Carga'),
-                'message': _('Aceptar desde la máquina para finalizar la carga.'),
-                'type': 'info',
-                'sticky': False,
-            },
-            'next': {'type': 'ir.actions.act_window_close'},
-        }
+        if not self.payment_method_id or not self.payment_method_id.cashdro_enabled:
+            raise UserError(_('Método de pago CashDro no válido o no habilitado.'))
+        return True
 
 
 class CashdroMovimientoRetiradaWizard(models.TransientModel):
@@ -275,21 +248,11 @@ class CashdroMovimientoRetiradaWizard(models.TransientModel):
         return res
 
     def action_iniciar_retirada(self):
+        """Ejecuta retirada desde JavaScript (cashdro_gateway_service.js)."""
         self.ensure_one()
-        gateway = _get_gateway_from_method(self.env, self.payment_method_id.id)
-        res = gateway.start_retirada(alias_id='')
-        operation_id = res.get('operation_id')
-        if not operation_id:
-            raise UserError(_('No se recibió operation_id al iniciar la retirada.'))
-        # Doc 5.8.3: es obligatorio acceder a la interfaz web para indicar las piezas a retirar.
-        # Sin abrir esta URL la máquina se queda en "Retirando..." sin pantalla para elegir.
-        url = gateway.get_retirada_web_url(operation_id)
-        return {
-            'type': 'ir.actions.act_url',
-            'url': url,
-            'target': 'new',
-            'name': _('Retirada - Indicar piezas en la web'),
-        }
+        if not self.payment_method_id or not self.payment_method_id.cashdro_enabled:
+            raise UserError(_('Método de pago CashDro no válido o no habilitado.'))
+        return True
 
 
 class CashdroMovimientoRetiradaCaseteMonedasWizard(models.TransientModel):
@@ -312,20 +275,11 @@ class CashdroMovimientoRetiradaCaseteMonedasWizard(models.TransientModel):
         return res
 
     def action_iniciar(self):
+        """Ejecuta retirada de casete de monedas desde JavaScript (cashdro_gateway_service.js)."""
         self.ensure_one()
-        gateway = _get_gateway_from_method(self.env, self.payment_method_id.id)
-        gateway.start_retirada_casete_monedas(alias_id='')
-        return {
-            'type': 'ir.actions.client',
-            'tag': 'display_notification',
-            'params': {
-                'title': _('Retirada de casete de monedas'),
-                'message': _('Completar el proceso en la máquina y aceptar.'),
-                'type': 'info',
-                'sticky': False,
-            },
-            'next': {'type': 'ir.actions.act_window_close'},
-        }
+        if not self.payment_method_id or not self.payment_method_id.cashdro_enabled:
+            raise UserError(_('Método de pago CashDro no válido o no habilitado.'))
+        return True
 
 
 class CashdroMovimientoRetiradaCaseteBilletesWizard(models.TransientModel):
@@ -348,20 +302,11 @@ class CashdroMovimientoRetiradaCaseteBilletesWizard(models.TransientModel):
         return res
 
     def action_iniciar(self):
+        """Ejecuta retirada de casete de billetes desde JavaScript (cashdro_gateway_service.js)."""
         self.ensure_one()
-        gateway = _get_gateway_from_method(self.env, self.payment_method_id.id)
-        gateway.start_retirada_casete_billetes(alias_id='')
-        return {
-            'type': 'ir.actions.client',
-            'tag': 'display_notification',
-            'params': {
-                'title': _('Retirada de casete de billetes'),
-                'message': _('Completar el proceso en la máquina y aceptar.'),
-                'type': 'info',
-                'sticky': False,
-            },
-            'next': {'type': 'ir.actions.act_window_close'},
-        }
+        if not self.payment_method_id or not self.payment_method_id.cashdro_enabled:
+            raise UserError(_('Método de pago CashDro no válido o no habilitado.'))
+        return True
 
 
 class CashdroMovimientoCambioWizard(models.TransientModel):
@@ -385,21 +330,8 @@ class CashdroMovimientoCambioWizard(models.TransientModel):
         return res
 
     def action_iniciar(self):
-        """
-        Doc 5.4: envía la orden a la máquina (startOperation type=18 + acknowledge).
-        No se abre ninguna ventana; la operación se gestiona en la propia máquina.
-        """
+        """Ejecuta cambio desde JavaScript (cashdro_gateway_service.js)."""
         self.ensure_one()
-        gateway = _get_gateway_from_method(self.env, self.payment_method_id.id)
-        gateway.start_cambio(alias_id='')
-        return {
-            'type': 'ir.actions.client',
-            'tag': 'display_notification',
-            'params': {
-                'title': _('Cambio'),
-                'message': _('Orden enviada a la máquina. Complete el cambio en CashDro.'),
-                'type': 'info',
-                'sticky': False,
-            },
-            'next': {'type': 'ir.actions.act_window_close'},
-        }
+        if not self.payment_method_id or not self.payment_method_id.cashdro_enabled:
+            raise UserError(_('Método de pago CashDro no válido o no habilitado.'))
+        return True

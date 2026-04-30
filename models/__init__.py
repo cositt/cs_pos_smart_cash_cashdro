@@ -9,6 +9,7 @@ from . import pos_config
 from . import cashdro_caja_movimientos
 from . import cashdro_movimiento_fianza_wizard
 from . import cashdro_movimiento_wizards
+from . import cashdro_operation_log
 
 __all__ = [
     'pos_payment_method',
@@ -18,4 +19,5 @@ __all__ = [
     'cashdro_caja_movimientos',
     'cashdro_movimiento_fianza_wizard',
     'cashdro_movimiento_wizards',
+    'cashdro_operation_log',
 ]

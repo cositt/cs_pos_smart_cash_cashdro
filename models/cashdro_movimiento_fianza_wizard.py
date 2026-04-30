@@ -242,18 +242,8 @@ class CashdroMovimientoFianzaWizard(models.TransientModel):
         }
 
     def action_execute(self):
+        """Ejecuta configuración de fianza desde JavaScript (cashdro_gateway_service.js)."""
         self.ensure_one()
-        gateway = _fianza_get_gateway(self.env, self.payment_method_id.id)
-        # Leemos piezas reales para construir config completa (igual que la web de CashDro)
-        pieces_resp = gateway.get_pieces_currency()
-        levels_config = self._build_levels_config(pieces_resp)
-        if not levels_config.get('config'):
-            raise UserError(_('No se han podido construir niveles de fianza a partir de getPiecesCurrency.'))
-        # 1) Enviar setDepositLevels con la estructura correcta
-        gateway.set_deposit_levels(levels_config)
-        # 2) Lanzar operación administrativa type=36 para aplicar la fianza configurada
-        gateway.apply_deposit_levels()
-        self.payment_method_id.sudo().write({
-            'cashdro_deposit_levels_json': json.dumps(levels_config),
-        })
-        return self._notify_and_close(_('Fianza configurada correctamente.'))
+        if not self.payment_method_id or not self.payment_method_id.cashdro_enabled:
+            raise UserError(_('Método de pago CashDro no válido o no habilitado.'))
+        return True

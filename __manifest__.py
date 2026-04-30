@@ -24,6 +24,11 @@
         "pos_self_order_iot",
     ],
     "assets": {
+        # Backend: operaciones CashDro desde formularios/wizards (ejecutadas desde navegador del cliente)
+        "web.assets_backend": [
+            "cs_pos_smart_cash_cashdro/static/src/js/cashdro_gateway_service.js",
+            "cs_pos_smart_cash_cashdro/static/src/js/cashdro_form_controller_patch.js",
+        ],
         "pos_self_order.assets": [
             "cs_pos_smart_cash_cashdro/static/src/js/owl_toggler_guard_patch.js",
             "cs_pos_smart_cash_cashdro/static/src/css/cashdrop_pending_dialog.css",

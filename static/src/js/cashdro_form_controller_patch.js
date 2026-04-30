@@ -678,8 +678,8 @@ patch(FormController.prototype, {
         try {
             console.log("[CashDro] Guardando operación en Odoo:", operationData);
             
-            // IMPORTANTE: orm.create espera un ARRAY de objetos, no un objeto simple
-            const recordId = await this.orm.create('cashdro.caja.movimientos', [{
+            // Usar el nuevo modelo cashdro.operation.log en lugar de cashdro.caja.movimientos
+            const recordId = await this.orm.create('cashdro.operation.log', [{
                 payment_method_id: operationData.payment_method_id,
                 operation_type: operationData.operation_type,
                 amount: operationData.amount || 0.0,

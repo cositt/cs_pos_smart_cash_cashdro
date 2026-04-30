@@ -155,66 +155,23 @@ class CashdroCajaMovimientos(models.TransientModel):
     def action_consultar_fianza(self):
         """
         Consulta estado de fianza (getPiecesCurrency con includeLevels=1).
-        Pinta el resultado solo en la pestaña "Estado de fianza".
+        MIGRADO A JAVASCRIPT: el navegador ejecuta la lógica desde cashdro_gateway_service.js.
+        Este método solo valida y retorna True.
         """
         self.ensure_one()
-        gateway = self._get_gateway()
-        try:
-            pieces_resp = gateway.get_pieces_currency(currency_id='EUR', include_images='0', include_levels='1')
-        except Exception as e:
-            pieces_resp = {'code': 0, 'data': []}
-        levels = self._get_levels_from_pieces(pieces_resp)
-        fianza_html = self._build_estado_fianza_from_pieces(pieces_resp, levels)
-        raw = {}
-        if self.state_raw:
-            try:
-                raw = json.loads(self.state_raw)
-            except (TypeError, json.JSONDecodeError):
-                pass
-        raw['getPiecesCurrency_fianza'] = pieces_resp
-        raw['levels_fianza'] = levels
-        self.write({
-            'state_fianza': fianza_html,
-            'state_raw': json.dumps(raw, indent=2, default=str)[:5000],
-            'last_refresh': fields.Datetime.now(),
-        })
+        if not self.payment_method_id or not self.payment_method_id.cashdro_enabled:
+            raise UserError(_('Selecciona un método de pago CashDro habilitado.'))
         return True
 
     def action_consulta_niveles(self):
         """
-        Consulta niveles actuales (getPiecesCurrency con includeLevels=1, LevelRecycler/LevelCasete).
-        Pinta el resultado solo en la pestaña "Estado niveles".
+        Consulta niveles actuales (getPiecesCurrency con includeLevels=1).
+        MIGRADO A JAVASCRIPT: el navegador ejecuta la lógica desde cashdro_gateway_service.js.
+        Este método solo valida y retorna True.
         """
         self.ensure_one()
-        gateway = self._get_gateway()
-        _logger.info("CashDro action_consulta_niveles: gateway_url=%s", gateway.gateway_url)
-        try:
-            pieces_resp = gateway.get_pieces_currency(currency_id='EUR', include_images='0', include_levels='1')
-        except Exception as e:
-            _logger.warning("CashDro action_consulta_niveles: get_pieces_currency falló -> %s", e)
-            pieces_resp = {'code': 0, 'data': []}
-        code = pieces_resp.get('code')
-        data = pieces_resp.get('data')
-        data_len = len(data) if isinstance(data, list) else 0
-        _logger.info("CashDro action_consulta_niveles: code=%s data_len=%s", code, data_len)
-        levels = self._get_levels_from_pieces(pieces_resp)
-        total_m = sum(t[2] + t[4] for t in levels['moneda'])
-        total_b = sum(t[2] + t[4] for t in levels['billete'])
-        _logger.info("CashDro action_consulta_niveles: levels total_moneda=%.2f total_billete=%.2f", total_m, total_b)
-        state_html = self._build_consulta_niveles_html(levels)
-        raw = {}
-        if self.state_raw:
-            try:
-                raw = json.loads(self.state_raw)
-            except (TypeError, json.JSONDecodeError):
-                pass
-        raw['getPiecesCurrency_niveles'] = pieces_resp
-        raw['levels'] = levels
-        self.write({
-            'state_display': state_html,
-            'state_raw': json.dumps(raw, indent=2, default=str)[:5000],
-            'last_refresh': fields.Datetime.now(),
-        })
+        if not self.payment_method_id or not self.payment_method_id.cashdro_enabled:
+            raise UserError(_('Selecciona un método de pago CashDro habilitado.'))
         return True
 
     @api.model
@@ -555,11 +512,17 @@ class CashdroCajaMovimientos(models.TransientModel):
         return html
 
     def action_pago(self):
-        """Abre wizard de venta (cobro)."""
+        """Abre wizard de venta (cobro). La lógica se ejecuta desde JavaScript."""
+        self.ensure_one()
+        if not self.payment_method_id or not self.payment_method_id.cashdro_enabled:
+            raise UserError(_('Selecciona un método de pago CashDro habilitado.'))
         return self._open_wizard('cashdro.movimiento.pago.wizard', _('Venta'))
 
     def action_devolucion(self):
-        """Abre wizard de pago (devolución/dispensa)."""
+        """Abre wizard de pago (devolución/dispensa). La lógica se ejecuta desde JavaScript."""
+        self.ensure_one()
+        if not self.payment_method_id or not self.payment_method_id.cashdro_enabled:
+            raise UserError(_('Selecciona un método de pago CashDro habilitado.'))
         return self._open_wizard('cashdro.movimiento.devolucion.wizard', _('Pago'))
 
     def action_ingresar(self):
