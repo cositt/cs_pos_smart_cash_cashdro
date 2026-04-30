@@ -678,14 +678,15 @@ patch(FormController.prototype, {
         try {
             console.log("[CashDro] Guardando operación en Odoo:", operationData);
             
-            const recordId = await this.orm.create('cashdro.caja.movimientos', {
+            // IMPORTANTE: orm.create espera un ARRAY de objetos, no un objeto simple
+            const recordId = await this.orm.create('cashdro.caja.movimientos', [{
                 payment_method_id: operationData.payment_method_id,
                 operation_type: operationData.operation_type,
                 amount: operationData.amount || 0.0,
                 state: operationData.state || 'completed',
                 cashdro_operation_id: operationData.operation_id || '',
                 concept: operationData.concept || '',
-            });
+            }]);
             
             console.log("[CashDro] Operación guardada en Odoo con ID:", recordId);
             return recordId;
