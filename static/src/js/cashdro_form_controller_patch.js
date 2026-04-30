@@ -372,11 +372,12 @@ patch(FormController.prototype, {
                 webInterface: true,
             },
             'cashdro.movimiento.carga.wizard': {
-                operationType: 16, // INGRESAR
+                operationType: 16, // INGRESAR genérico
                 operationAdmin: true,
                 description: _t('Ingresar'),
                 requiresAmount: false,
                 requiresPolling: false,
+                waitForMachine: true, // La máquina se queda en modo ingreso hasta que el usuario termine
             },
             'cashdro.movimiento.ingreso.importe.wizard': {
                 operationType: 17, // INGRESAR POR IMPORTE
@@ -899,13 +900,20 @@ patch(FormController.prototype, {
                 }
             }
             
-            // PASO 4: Finalizar (si aplica)
-            if (config.operationAdmin && config.operationType !== 2) {
+            // PASO 4: Finalizar (solo para operaciones que lo requieren)
+            // NO hacer finish para: Ingresar(16), Carga(1), Cambio(18), etc.
+            // Solo hacer finish para operaciones que necesitan confirmación explícita
+            const shouldFinish = config.operationType === 12; // Solo inicializar niveles (type=12)
+            
+            if (shouldFinish) {
                 try {
+                    console.log("[CashDro] Finalizando operación type=" + config.operationType);
                     await gateway.finishOperation(operationId, 1);
                 } catch (finErr) {
                     console.warn("Finish error:", finErr);
                 }
+            } else {
+                console.log("[CashDro] No se finaliza operación type=" + config.operationType + " - la máquina permanece en modo operación");
             }
             
             // PASO 5: Cerrar wizard
