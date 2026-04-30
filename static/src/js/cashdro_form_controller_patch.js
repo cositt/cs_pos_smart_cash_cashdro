@@ -780,7 +780,17 @@ patch(FormController.prototype, {
             
             let startResponse;
             if (config.operationAdmin) {
-                startResponse = await gateway.startOperationAdmin(config.operationType, {});
+                // Para operaciones admin que requieren importe (ej: type=17 Ingresar por importe)
+                // pasar el importe en los parámetros como JSON
+                const options = {};
+                if (config.requiresAmount && amount > 0) {
+                    // Convertir a céntimos para el CashDro
+                    const amountCents = Math.round(parseFloat(amount) * 100);
+                    options.parameters = JSON.stringify({ amount: String(amountCents) });
+                }
+                
+                console.log("[CashDro] startOperationAdmin con options:", options);
+                startResponse = await gateway.startOperationAdmin(config.operationType, options);
             } else {
                 if (config.requiresAmount && (!amount || amount <= 0)) {
                     throw new Error(_t("El importe debe ser mayor que 0"));
