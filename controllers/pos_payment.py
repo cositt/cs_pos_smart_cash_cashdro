@@ -829,82 +829,90 @@ class CashdropPaymentController(http.Controller):
         }
         """
         try:
-            _logger.info(
-                "Kiosk CashDro save-result: order_id=%s payment_method_id=%s amount=%s operation_id=%s state=%s",
-                order_id, payment_method_id, amount, cashdro_operation_id, state
-            )
+            _logger.info("[KIOSK-PROD] save-result: order_id=%s pm_id=%s amount=%s", 
+                       order_id, payment_method_id, amount)
             
-            # Validar parámetros
+            # Validar payment_method_id
             if not payment_method_id:
+                _logger.error("[KIOSK-PROD] payment_method_id no proporcionado")
                 return {'success': False, 'error': 'payment_method_id requerido'}
             
+            try:
+                pm_id = int(payment_method_id)
+            except (ValueError, TypeError):
+                _logger.error("[KIOSK-PROD] payment_method_id inválido: %s", payment_method_id)
+                return {'success': False, 'error': 'payment_method_id debe ser número'}
+            
             # Buscar método de pago
-            payment_method = http.request.env['pos.payment.method'].sudo().browse(payment_method_id)
+            env = http.request.env
+            payment_method = env['pos.payment.method'].sudo().browse(pm_id)
+            
             if not payment_method.exists():
+                _logger.error("[KIOSK-PROD] Método de pago no encontrado: %s", pm_id)
                 return {'success': False, 'error': 'Método de pago no encontrado'}
             
-            # Crear registro en cashdro.operation.log
-            log_vals = {
-                'payment_method_id': payment_method_id,
-                'operation_type': 'venta',  # Tipo por defecto para kiosk
-                'amount': amount or 0.0,
-                'state': state or 'completed',
-                'cashdro_operation_id': cashdro_operation_id or '',
-                'concept': 'Pago en quiosco',
-            }
-            
-            record = http.request.env['cashdro.operation.log'].sudo().create([log_vals])
-            record_id = record[0] if isinstance(record, list) else record
-            
-            _logger.info("Kiosk CashDro save-result: registro creado con ID=%s", record_id)
-            
-            return {
-                'success': True,
-                'record_id': record_id,
-            }
+            # Crear registro
+            try:
+                log_vals = {
+                    'payment_method_id': pm_id,
+                    'operation_type': 'venta',
+                    'amount': float(amount) if amount else 0.0,
+                    'state': state or 'completed',
+                    'cashdro_operation_id': str(cashdro_operation_id) if cashdro_operation_id else '',
+                    'concept': 'Pago en quiosco',
+                }
+                
+                record = env['cashdro.operation.log'].sudo().create([log_vals])
+                record_id = record[0] if isinstance(record, list) else record.id if hasattr(record, 'id') else record
+                
+                _logger.info("[KIOSK-PROD] Registro creado: ID=%s", record_id)
+                
+                return {
+                    'success': True,
+                    'record_id': record_id,
+                }
+            except Exception as e:
+                _logger.error("[KIOSK-PROD] Error creando registro: %s", str(e))
+                return {'success': False, 'error': 'Error guardando registro: %s' % str(e)}
             
         except Exception as e:
-            _logger.exception("Error en kiosk_payment_save_result")
-            return {'success': False, 'error': str(e)}
+            _logger.exception("[KIOSK-PROD] Error general en save-result")
+            return {'success': False, 'error': 'Error interno: %s' % str(e)}
 
     @http.route('/cashdro/payment/kiosk/confirm-js', auth='public', type='jsonrpc', csrf=False)
     def kiosk_payment_confirm_js(self, order_id=None, **kwargs):
         """
         Confirmar orden de kiosk después de pago exitoso (nuevo flujo JavaScript).
         
-        Este endpoint es llamado por el nuevo flujo JavaScript después de que
-        el pago se completó exitosamente en el CashDro desde el navegador.
-        
-        Similar a kiosk_payment_confirm_json pero sin necesidad de transaction_id
-        (el pago ya se verificó desde JavaScript mediante polling).
-        
-        Request:
-        {
-            "order_id": 123
-        }
-        
-        Response:
-        {
-            "success": true,
-            "message": "Orden pagada y enviada a cocina",
-            "order_id": 123,
-            "order_sync": {...}
-        }
+        Versión mejorada con manejo de errores detallado y logs para producción.
         """
         try:
-            _logger.info("Kiosk CashDro confirm-js: order_id=%s", order_id)
+            _logger.info("[KIOSK-PROD] confirm-js iniciado: order_id=%s", order_id)
             
             if not order_id:
+                _logger.error("[KIOSK-PROD] order_id no proporcionado")
                 return {'success': False, 'error': 'order_id requerido'}
             
-            # Buscar orden
-            order = http.request.env['pos.order'].sudo().browse(int(order_id))
+            try:
+                order_id_int = int(order_id)
+            except (ValueError, TypeError):
+                _logger.error("[KIOSK-PROD] order_id inválido: %s", order_id)
+                return {'success': False, 'error': 'order_id debe ser un número'}
+            
+            # Buscar orden con sudo para evitar problemas de permisos
+            env = http.request.env
+            order = env['pos.order'].sudo().browse(order_id_int)
+            
             if not order.exists():
+                _logger.error("[KIOSK-PROD] Orden no encontrada: %s", order_id_int)
                 return {'success': False, 'error': 'Orden no encontrada'}
+            
+            _logger.info("[KIOSK-PROD] Orden encontrada: id=%s state=%s amount_total=%s", 
+                       order.id, order.state, order.amount_total)
             
             # Verificar si ya está pagada
             if order.state == 'paid':
-                _logger.info("Kiosk CashDro confirm-js: orden ya está pagada, devolviendo success")
+                _logger.info("[KIOSK-PROD] Orden ya pagada: %s", order.id)
                 order_sync = self._get_order_sync_data(order)
                 return {
                     'success': True,
@@ -913,60 +921,94 @@ class CashdropPaymentController(http.Controller):
                     'order_sync': order_sync,
                 }
             
-            # Marcar orden como pagada
-            # Buscar método de pago CashDro en la configuración del POS
+            # Buscar método de pago CashDro
             cashdro_method = None
             
-            # 1. Buscar en los métodos de pago de la configuración del POS
-            if order.config_id and order.config_id.payment_method_ids:
-                cashdro_methods = order.config_id.payment_method_ids.filtered(lambda m: m.cashdro_enabled)
-                if cashdro_methods:
-                    cashdro_method = cashdro_methods[0]
+            # 1. Buscar en configuración del POS
+            try:
+                if order.config_id and order.config_id.payment_method_ids:
+                    cashdro_methods = order.config_id.payment_method_ids.filtered(lambda m: m.cashdro_enabled)
+                    if cashdro_methods:
+                        cashdro_method = cashdro_methods[0]
+                        _logger.info("[KIOSK-PROD] Método encontrado en config: %s", cashdro_method.id)
+            except Exception as e:
+                _logger.warning("[KIOSK-PROD] Error buscando en config: %s", str(e))
             
-            # 2. Si no se encontró, buscar en los pagos existentes de la orden
-            if not cashdro_method and order.payment_ids:
-                for payment in order.payment_ids:
-                    if payment.payment_method_id and payment.payment_method_id.cashdro_enabled:
-                        cashdro_method = payment.payment_method_id
-                        break
-            
-            # 3. Si aún no se encontró, buscar cualquier método de pago CashDro en el sistema
+            # 2. Buscar en pagos existentes
             if not cashdro_method:
-                any_cashdro = http.request.env['pos.payment.method'].sudo().search([
-                    ('cashdro_enabled', '=', True)
-                ], limit=1)
-                if any_cashdro:
-                    cashdro_method = any_cashdro
-                    _logger.info("Kiosk CashDro confirm-js: usando método CashDro global ID=%s", any_cashdro.id)
+                try:
+                    if order.payment_ids:
+                        for payment in order.payment_ids:
+                            if payment.payment_method_id and payment.payment_method_id.cashdro_enabled:
+                                cashdro_method = payment.payment_method_id
+                                _logger.info("[KIOSK-PROD] Método encontrado en pagos: %s", cashdro_method.id)
+                                break
+                except Exception as e:
+                    _logger.warning("[KIOSK-PROD] Error buscando en pagos: %s", str(e))
             
-            payment_method_id = cashdro_method.id if cashdro_method else None
-            _logger.info("Kiosk CashDro confirm-js: payment_method_id=%s", payment_method_id)
+            # 3. Fallback global
+            if not cashdro_method:
+                try:
+                    any_cashdro = env['pos.payment.method'].sudo().search([
+                        ('cashdro_enabled', '=', True)
+                    ], limit=1)
+                    if any_cashdro:
+                        cashdro_method = any_cashdro
+                        _logger.info("[KIOSK-PROD] Método fallback global: %s", any_cashdro.id)
+                except Exception as e:
+                    _logger.error("[KIOSK-PROD] Error en fallback global: %s", str(e))
             
-            # Si no hay payment_method_id, no podemos continuar
-            if not payment_method_id:
+            if not cashdro_method:
+                _logger.error("[KIOSK-PROD] No se encontró método de pago CashDro")
                 return {'success': False, 'error': 'No se encontró método de pago CashDro configurado'}
             
-            # Añadir pago si no está completo
-            if not float_is_zero(order.amount_total - order.amount_paid, precision_rounding=order.currency_id.rounding):
-                order.add_payment({
-                    'amount': order.amount_total,
-                    'payment_method_id': payment_method_id,
-                    'pos_order_id': order.id,
-                })
+            payment_method_id = cashdro_method.id
+            _logger.info("[KIOSK-PROD] Usando payment_method_id: %s", payment_method_id)
+            
+            # Añadir pago si es necesario
+            try:
+                amount_unpaid = order.amount_total - order.amount_paid
+                _logger.info("[KIOSK-PROD] Monto pendiente: %s", amount_unpaid)
+                
+                if not float_is_zero(amount_unpaid, precision_rounding=order.currency_id.rounding):
+                    _logger.info("[KIOSK-PROD] Añadiendo pago: amount=%s method_id=%s", 
+                               order.amount_total, payment_method_id)
+                    order.add_payment({
+                        'amount': order.amount_total,
+                        'payment_method_id': payment_method_id,
+                        'pos_order_id': order.id,
+                    })
+                    _logger.info("[KIOSK-PROD] Pago añadido correctamente")
+            except Exception as e:
+                _logger.error("[KIOSK-PROD] Error añadiendo pago: %s", str(e))
+                return {'success': False, 'error': 'Error al registrar el pago: %s' % str(e)}
             
             # Confirmar orden
-            order.action_pos_order_paid()
+            try:
+                _logger.info("[KIOSK-PROD] Confirmando orden...")
+                order.action_pos_order_paid()
+                _logger.info("[KIOSK-PROD] Orden confirmada, state=%s", order.state)
+            except Exception as e:
+                _logger.error("[KIOSK-PROD] Error confirmando orden: %s", str(e))
+                return {'success': False, 'error': 'Error al confirmar la orden: %s' % str(e)}
             
             # Enviar a cocina y recibo
-            order._send_self_order_receipt()
-            order._send_order()
+            try:
+                _logger.info("[KIOSK-PROD] Enviando recibo y a cocina...")
+                order._send_self_order_receipt()
+                order._send_order()
+                _logger.info("[KIOSK-PROD] Recibo y orden enviados")
+            except Exception as e:
+                _logger.warning("[KIOSK-PROD] Error enviando recibo/cocina (no crítico): %s", str(e))
             
-            order_sync = self._get_order_sync_data(order)
+            # Preparar respuesta
+            try:
+                order_sync = self._get_order_sync_data(order)
+            except Exception as e:
+                _logger.warning("[KIOSK-PROD] Error obteniendo order_sync: %s", str(e))
+                order_sync = {}
             
-            _logger.info(
-                "Kiosk CashDro confirm-js: orden confirmada order_id=%s amount_total=%s amount_paid=%s",
-                order.id, order.amount_total, order.amount_paid
-            )
+            _logger.info("[KIOSK-PROD] ÉXITO: orden_id=%s confirmada", order.id)
             
             return {
                 'success': True,
@@ -976,8 +1018,8 @@ class CashdropPaymentController(http.Controller):
             }
             
         except Exception as e:
-            _logger.exception("Error en kiosk_payment_confirm_js")
-            return {'success': False, 'error': str(e)}
+            _logger.exception("[KIOSK-PROD] Error general en kiosk_payment_confirm_js")
+            return {'success': False, 'error': 'Error interno: %s' % str(e)}
 
     def _get_order_sync_data(self, order):
         """Helper para obtener datos sincronizados de la orden."""
