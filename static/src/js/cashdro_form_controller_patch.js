@@ -219,6 +219,20 @@ patch(FormController.prototype, {
             
             if (response.code === 1) {
                 this.notification.add(_t("Fianza consultada correctamente"), { type: "success" });
+                
+                // Guardar resultado en Odoo
+                const paymentMethodId = formData.payment_method_id?.[0];
+                if (paymentMethodId) {
+                    await this._saveOperationToOdoo({
+                        payment_method_id: paymentMethodId,
+                        operation_type: 'consulta_fianza',
+                        amount: 0,
+                        state: 'completed',
+                        operation_id: '',
+                        concept: 'Consulta de fianza',
+                    });
+                }
+                
                 // Recargar el formulario para que muestre los datos actualizados
                 await this.model.load();
             } else {
@@ -245,6 +259,20 @@ patch(FormController.prototype, {
             
             if (response.code === 1) {
                 this.notification.add(_t("Niveles consultados correctamente"), { type: "success" });
+                
+                // Guardar resultado en Odoo
+                const paymentMethodId = formData.payment_method_id?.[0];
+                if (paymentMethodId) {
+                    await this._saveOperationToOdoo({
+                        payment_method_id: paymentMethodId,
+                        operation_type: 'consulta_niveles',
+                        amount: 0,
+                        state: 'completed',
+                        operation_id: '',
+                        concept: 'Consulta de niveles',
+                    });
+                }
+                
                 // Recargar el formulario
                 await this.model.load();
             } else {
@@ -378,10 +406,62 @@ patch(FormController.prototype, {
     },
 
     /**
+     * Convierte el código numérico de operación a nombre legible.
+     */
+    _getOperationTypeName(operationType) {
+        const typeNames = {
+            1: 'carga',
+            2: 'retirada',
+            3: 'pago',
+            4: 'venta',
+            10: 'retirada_casete_billetes',
+            11: 'retirada_casete_monedas',
+            12: 'inicializar_niveles',
+            16: 'ingresar',
+            17: 'ingreso_importe',
+            18: 'cambio',
+            36: 'fianza',
+        };
+        return typeNames[operationType] || 'operacion';
+    },
+
+    /**
+     * Guarda el resultado de la operación en Odoo vía RPC.
+     * Crea un registro en cashdro.caja.movimientos con los datos de la operación.
+     */
+    async _saveOperationToOdoo(operationData) {
+        try {
+            console.log("[CashDro] Guardando operación en Odoo:", operationData);
+            
+            const recordId = await this.orm.create('cashdro.caja.movimientos', {
+                payment_method_id: operationData.payment_method_id,
+                operation_type: operationData.operation_type,
+                amount: operationData.amount || 0.0,
+                state: operationData.state || 'completed',
+                cashdro_operation_id: operationData.operation_id || '',
+                concept: operationData.concept || '',
+            });
+            
+            console.log("[CashDro] Operación guardada en Odoo con ID:", recordId);
+            return recordId;
+        } catch (error) {
+            console.error("[CashDro] Error guardando en Odoo:", error);
+            // No lanzamos error para no interrumpir el flujo, pero notificamos
+            this.notification.add(
+                _t("Advertencia: La operación se completó en CashDro pero no se pudo guardar en Odoo: %s", error.message),
+                { type: "warning", sticky: true }
+            );
+            return null;
+        }
+    },
+
+    /**
      * Ejecuta una operación CashDro con polling y mostrador de progreso.
      */
     async _executeOperationWithPolling(gateway, config, formData) {
         let operationId = null;
+        const paymentMethodId = formData.payment_method_id?.[0] || this.env?.context?.default_payment_method_id;
+        const amount = config.requiresAmount ? formData[config.amountField] : 0;
         
         try {
             // PASO 1: Iniciar operación
@@ -394,7 +474,6 @@ patch(FormController.prototype, {
             if (config.operationAdmin) {
                 startResponse = await gateway.startOperationAdmin(config.operationType, {});
             } else {
-                const amount = config.requiresAmount ? formData[config.amountField] : 0;
                 if (config.requiresAmount && (!amount || amount <= 0)) {
                     throw new Error(_t("El importe debe ser mayor que 0"));
                 }
@@ -419,15 +498,37 @@ patch(FormController.prototype, {
                     { type: "success", sticky: true }
                 );
                 
-                await gateway.pollUntilComplete(operationId, (progress) => {
+                const finalResponse = await gateway.pollUntilComplete(operationId, (progress) => {
                     console.log(`[CashDro Polling] Intento ${progress.attemptCount}, Estado: ${progress.state}, Tiempo: ${progress.elapsedSeconds}s`);
                 });
                 
                 this.notification.add(_t("Operación completada"), { type: "success" });
+                
+                // PASO 3b: Guardar resultado en Odoo después de completar
+                await this._saveOperationToOdoo({
+                    payment_method_id: paymentMethodId,
+                    operation_type: this._getOperationTypeName(config.operationType),
+                    amount: amount,
+                    state: 'completed',
+                    operation_id: operationId,
+                    concept: config.description,
+                });
+                
             } else if (config.applyDepositLevels) {
                 // Especial: aplicar fianza
                 await gateway.applyDepositLevels();
                 this.notification.add(_t("Fianza aplicada correctamente"), { type: "success" });
+                
+                // Guardar en Odoo
+                await this._saveOperationToOdoo({
+                    payment_method_id: paymentMethodId,
+                    operation_type: 'fianza',
+                    amount: 0,
+                    state: 'completed',
+                    operation_id: operationId || '',
+                    concept: config.description,
+                });
+                
             } else if (config.webInterface) {
                 // Abrir interfaz web
                 const webUrl = config.operationType === 2 
@@ -438,11 +539,32 @@ patch(FormController.prototype, {
                     _t("Interfaz web abierta. Complete la operación en la máquina y en la ventana."),
                     { type: "info", sticky: true }
                 );
+                
+                // Guardar en Odoo
+                await this._saveOperationToOdoo({
+                    payment_method_id: paymentMethodId,
+                    operation_type: this._getOperationTypeName(config.operationType),
+                    amount: 0,
+                    state: 'pending',
+                    operation_id: operationId,
+                    concept: config.description,
+                });
+                
             } else {
                 this.notification.add(
                     _t("Operación iniciada en la máquina (ID=%s)", operationId),
                     { type: "success" }
                 );
+                
+                // Guardar en Odoo
+                await this._saveOperationToOdoo({
+                    payment_method_id: paymentMethodId,
+                    operation_type: this._getOperationTypeName(config.operationType),
+                    amount: amount || 0,
+                    state: 'completed',
+                    operation_id: operationId,
+                    concept: config.description,
+                });
             }
             
             // PASO 4: Finalizar (si aplica)
