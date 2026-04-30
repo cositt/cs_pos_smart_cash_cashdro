@@ -848,18 +848,43 @@ class CashdropPaymentController(http.Controller):
                 }
             
             # Marcar orden como pagada
-            # Usar el método de pago CashDro configurado
-            cashdro_method = order.config_id.payment_method_ids.filtered(lambda m: m.cashdro_enabled)
-            if not cashdro_method:
-                cashdro_method = order.payment_ids.mapped('payment_method_id').filtered(lambda m: m.cashdro_enabled)
+            # Buscar método de pago CashDro en la configuración del POS
+            cashdro_method = None
             
-            payment_method_id = cashdro_method[0].id if cashdro_method else None
+            # 1. Buscar en los métodos de pago de la configuración del POS
+            if order.config_id and order.config_id.payment_method_ids:
+                cashdro_methods = order.config_id.payment_method_ids.filtered(lambda m: m.cashdro_enabled)
+                if cashdro_methods:
+                    cashdro_method = cashdro_methods[0]
+            
+            # 2. Si no se encontró, buscar en los pagos existentes de la orden
+            if not cashdro_method and order.payment_ids:
+                for payment in order.payment_ids:
+                    if payment.payment_method_id and payment.payment_method_id.cashdro_enabled:
+                        cashdro_method = payment.payment_method_id
+                        break
+            
+            # 3. Si aún no se encontró, buscar cualquier método de pago CashDro en el sistema
+            if not cashdro_method:
+                any_cashdro = http.request.env['pos.payment.method'].sudo().search([
+                    ('cashdro_enabled', '=', True)
+                ], limit=1)
+                if any_cashdro:
+                    cashdro_method = any_cashdro
+                    _logger.info("Kiosk CashDro confirm-js: usando método CashDro global ID=%s", any_cashdro.id)
+            
+            payment_method_id = cashdro_method.id if cashdro_method else None
+            _logger.info("Kiosk CashDro confirm-js: payment_method_id=%s", payment_method_id)
+            
+            # Si no hay payment_method_id, no podemos continuar
+            if not payment_method_id:
+                return {'success': False, 'error': 'No se encontró método de pago CashDro configurado'}
             
             # Añadir pago si no está completo
             if not float_is_zero(order.amount_total - order.amount_paid, precision_rounding=order.currency_id.rounding):
                 order.add_payment({
                     'amount': order.amount_total,
-                    'payment_method_id': payment_method_id or order.payment_ids[0].payment_method_id.id if order.payment_ids else None,
+                    'payment_method_id': payment_method_id,
                     'pos_order_id': order.id,
                 })
             
