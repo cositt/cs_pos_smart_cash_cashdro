@@ -3,12 +3,16 @@
 import { patch } from "@web/core/utils/patch";
 import { rpc } from "@web/core/network/rpc";
 import { PaymentPage } from "@pos_self_order/app/pages/payment_page/payment_page";
+import { createCashdroKioskService } from "@cs_pos_smart_cash_cashdro/app/self_order/cashdro_kiosk_service";
 
 /**
- * Patch de la página de pago del kiosk para Cashdrop:
- * - Si payment_status es pending + is_cashdrop: overlay "Pague en la máquina Cashdro" (sin servicio dialog, evita OwlError VToggler).
- * - Al recibir OK de la máquina (state 'F'), se quita el overlay y se confirma la orden.
- * - Para CashDro no se pone state.selection = false, así no se re-renderiza la rama t-else y se evita el VToggler "solo primera vez".
+ * Patch de la página de pago del kiosk para CashDro - VERSIÓN MIGRADA A JAVASCRIPT.
+ * 
+ * Cambios principales:
+ * - Antes: Hacía RPC al servidor Python, que hacía requests al CashDro
+ * - Ahora: JavaScript hace fetch() directo al CashDro desde el navegador
+ * - Polling desde cliente (no RPC al servidor)
+ * - Solo RPC al servidor para guardar resultado (persistencia)
  */
 patch(PaymentPage.prototype, {
 
@@ -23,106 +27,146 @@ patch(PaymentPage.prototype, {
     },
 
     /**
-     * Reemplaza startPayment para capturar la respuesta y manejar Cashdrop pending.
+     * Reemplaza startPayment para usar el nuevo flujo JavaScript directo al CashDro.
      */
     async startPayment() {
         this.selfOrder.paymentError = false;
 
-        const payload = {
-            order: this.selfOrder.currentOrder.serializeForORM(),
-            access_token: this.selfOrder.access_token,
-            payment_method_id: this.state.paymentMethodId,
-        };
+        const method = this.selfOrder?.models?.["pos.payment.method"]?.get?.(this.state.paymentMethodId);
+        
+        // Si NO es CashDro, usar flujo normal
+        if (!method || !method.cashdro_enabled) {
+            await super.startPayment();
+            return;
+        }
 
-        let response;
+        // ✓ ES CASHDRO: Usar nuevo flujo JavaScript directo
+        console.log("[CashDro Kiosk] Iniciando pago con nuevo flujo JavaScript");
+        
         try {
-            response = await rpc(
-                `/kiosk/payment/${this.selfOrder.config.id}/kiosk`,
-                payload
-            );
-        } catch (error) {
-            console.error("[Cashdrop] RPC Error:", error);
-            this.selfOrder.handleErrorNotification(error);
-            this.selfOrder.paymentError = true;
-            return;
-        }
-
-        let ps = response?.payment_status || {};
-
-        // Fallback: si el backend no devolvió payment_status pero tenemos orden y método de pago,
-        // intentar iniciar pago CashDro con nuestro endpoint (por si pos_self_order no inyecta payment_status).
-        if (!ps.status && response?.order && this.state.paymentMethodId) {
-            const orderData = Array.isArray(response.order) ? response.order[0] : response.order;
-            const orderId = orderData?.id ?? orderData?.pos_order_id;
-            const amount = orderData?.amount_total ?? this.selfOrder.currentOrder?.getTotal?.();
-            if (orderId) {
-                try {
-                    const startResult = await rpc("/cashdro/payment/kiosk/start", {
-                        order_id: orderId,
-                        payment_method_id: this.state.paymentMethodId,
-                        amount: amount,
-                    });
-                    if (startResult?.success && startResult?.payment_status) {
-                        ps = startResult.payment_status;
-                        response = { ...response, payment_status: ps, order: response.order };
-                    }
-                } catch (err) {
-                }
+            // Crear servicio CashDro
+            const cashdroService = createCashdroKioskService(this.selfOrder, this.state.paymentMethodId);
+            
+            // Obtener datos de la orden
+            const order = this.selfOrder.currentOrder;
+            const amount = order?.getTotal?.() || order?.amount_total || 0;
+            const orderId = order?.id || order?.serverId;
+            
+            console.log("[CashDro Kiosk] Orden:", { orderId, amount });
+            
+            // Mostrar overlay de "Pague en la máquina"
+            let removeOverlay;
+            const handleCancel = () => {
+                cashdroService.cancel();
+                this._cancelCashdroKiosk(removeOverlay);
+            };
+            removeOverlay = this._showCashdropOverlay(handleCancel);
+            
+            // Timeout de seguridad (3 minutos)
+            const TIMEOUT_MS = 180 * 1000;
+            const timeoutId = setTimeout(() => {
+                cashdroService.cancel();
+                this._cancelCashdroKiosk(removeOverlay);
+            }, TIMEOUT_MS);
+            
+            // Procesar pago con polling
+            const result = await cashdroService.processPayment(amount, orderId, (progress) => {
+                console.log(`[CashDro Kiosk] Progreso: ${progress.state}, intento ${progress.attemptCount}`);
+            });
+            
+            clearTimeout(timeoutId);
+            
+            if (result.cancelled) {
+                removeOverlay?.();
+                this.selfOrder.notification?.add?.(_t("Pago cancelado"), { type: "warning" });
+                this.state.selection = true;
+                this.state.paymentMethodId = null;
+                this.selfOrder.paymentError = true;
+                return;
             }
-        }
-
-        // ✓ SI ES CASHDROP Y ESTÁ PENDIENTE: mostrar mensaje y delegar en backend la espera/confirmación
-        if (ps.is_cashdrop && ps.status === "pending") {
-            this._openCashdropPendingAndConfirm(response);
-            return;
-        }
-
-        // ✗ SI CASHDROP DEVOLVIÓ ERROR
-        if (ps.is_cashdrop && ps.status === "error") {
-            console.error("[Cashdrop] Payment error:", ps.message);
-            this.selfOrder.handleErrorNotification(ps.message || "Error en Cashdrop");
+            
+            if (!result.success) {
+                removeOverlay?.();
+                this.selfOrder.handleErrorNotification(result.message || _t("Error en el pago"));
+                this.selfOrder.paymentError = true;
+                return;
+            }
+            
+            // ✓ PAGO EXITOSO
+            removeOverlay?.();
+            console.log("[CashDro Kiosk] Pago exitoso, confirmando orden...");
+            
+            // Confirmar orden en Odoo
+            await this._confirmOrderAfterPayment(orderId);
+            
+        } catch (error) {
+            console.error("[CashDro Kiosk] Error:", error);
+            this.selfOrder.handleErrorNotification(error.message || _t("Error en el pago CashDro"));
             this.selfOrder.paymentError = true;
-            return;
-        }
-
-        // ✓ SI NO ES CASHDROP O EL PAGO YA ESTÁ CONFIRMADO: CONTINUAR FLUJO NORMAL
-        await super.startPayment();
-    },
-
-    _openCashdropPendingAndConfirm(response) {
-        const ps = response.payment_status || {};
-        const orderData =
-            response.order && (Array.isArray(response.order) ? response.order[0] : response.order);
-        const orderId = orderData && (orderData.id || orderData.pos_order_id);
-        const transactionId = ps.transaction_id;
-        const operationId = ps.operation_id;
-
-        // Overlay DOM puro (sin dialog service) para evitar OwlError "this.child.mount is not a function" al cerrar.
-        let removeOverlay;
-        const handleCancel = () => {
-            this._clearCashdropTimeout();
-            this._cancelCashdrop(transactionId, operationId, removeOverlay);
-        };
-        removeOverlay = this._showCashdropOverlay(handleCancel);
-
-        this._cashdropCancelled = false;
-        // Si en 60 s no se paga ni se cancela: cancelar en CashDro y reiniciar quiosco.
-        const TIMEOUT_MS = 60 * 1000;
-        this._cashdropTimeoutId = setTimeout(() => {
-            this._cashdropTimeoutId = null;
-            this._cancelCashdrop(transactionId, operationId, removeOverlay);
-        }, TIMEOUT_MS);
-
-        this._autoConfirmCashdrop(transactionId, orderId, removeOverlay);
-    },
-
-    _clearCashdropTimeout() {
-        if (this._cashdropTimeoutId != null) {
-            clearTimeout(this._cashdropTimeoutId);
-            this._cashdropTimeoutId = null;
         }
     },
 
+    /**
+     * Confirma la orden después de pago exitoso.
+     */
+    async _confirmOrderAfterPayment(orderId) {
+        try {
+            // Llamar al endpoint de confirmación
+            const result = await rpc("/cashdro/payment/kiosk/confirm-js", {
+                order_id: orderId,
+            });
+            
+            if (result && result.success) {
+                // Sincronizar datos de la orden
+                if (result.order_sync && this.selfOrder.models?.connectNewData) {
+                    try {
+                        this.selfOrder.models.connectNewData(result.order_sync);
+                    } catch (e) {
+                        console.warn("Error sincronizando orden:", e);
+                    }
+                }
+                
+                // Notificación de éxito
+                const msg = result.message || _t("Orden pagada y enviada a cocina");
+                this.selfOrder.notification?.add?.(msg, { type: "success" });
+                
+                // Navegar a página de confirmación
+                const accessToken =
+                    result.order_sync?.["pos.order"]?.[0]?.access_token ||
+                    this.selfOrder.currentOrder?.access_token;
+                
+                if (accessToken) {
+                    this.selfOrder.confirmationPage("order", "kiosk", accessToken);
+                } else {
+                    this.router.back();
+                }
+            } else {
+                this.selfOrder.handleErrorNotification(result?.error || _t("Error al confirmar orden"));
+                this.selfOrder.paymentError = true;
+            }
+        } catch (error) {
+            console.error("[CashDro Kiosk] Error confirmando orden:", error);
+            this.selfOrder.handleErrorNotification(_t("Error al confirmar la orden en Odoo"));
+            this.selfOrder.paymentError = true;
+        }
+    },
+
+    /**
+     * Cancela el pago del quiosco.
+     */
+    async _cancelCashdroKiosk(removeOverlay) {
+        removeOverlay?.();
+        this.state.selection = true;
+        this.state.paymentMethodId = null;
+        this.selfOrder.paymentError = true;
+        if (this.router && typeof this.router.navigate === "function") {
+            this.router.navigate("default");
+        }
+    },
+
+    /**
+     * Muestra overlay de "Pague en la máquina CashDro".
+     */
     _showCashdropOverlay(onCancel) {
         const overlay = document.createElement("div");
         overlay.className = "cashdrop-pending-overlay position-fixed top-0 start-0 end-0 bottom-0 d-flex align-items-center justify-content-center bg-dark bg-opacity-75";
@@ -152,104 +196,5 @@ patch(PaymentPage.prototype, {
                 overlay.remove();
             }
         };
-    },
-
-    async _cancelCashdrop(transactionId, operationId, removeOverlay) {
-        this._clearCashdropTimeout();
-        try {
-            this._cashdropCancelled = true;
-            const payload = { transaction_id: transactionId };
-            if (operationId) {
-                payload.operation_id = operationId;
-            }
-            const result = await rpc("/cashdro/payment/cancel", payload);
-            removeOverlay?.();
-            if (result && result.success) {
-                const msg = result.message || "Pago cancelado";
-                this.selfOrder.notification?.add?.(msg, { type: "warning" });
-            } else {
-                this.selfOrder.handleErrorNotification(
-                    result?.error || "Error al cancelar pago en CashDro"
-                );
-            }
-        } catch (error) {
-            removeOverlay?.();
-            this.selfOrder.handleErrorNotification(
-                error?.message || error || "Error al cancelar pago en CashDro"
-            );
-        }
-        this.state.selection = true;
-        this.state.paymentMethodId = null;
-        this.selfOrder.paymentError = true;
-        if (this.router && typeof this.router.navigate === "function") {
-            this.router.navigate("default");
-        }
-    },
-
-    async _autoConfirmCashdrop(transactionId, orderId, removeOverlay) {
-        try {
-            const result = await rpc("/cashdro/payment/kiosk/confirm", {
-                transaction_id: transactionId,
-                order_id: orderId,
-            });
-            if (this._cashdropCancelled) {
-                this._clearCashdropTimeout();
-                removeOverlay?.();
-                return;
-            }
-            if (result && result.success) {
-                this._clearCashdropTimeout();
-                removeOverlay?.();
-                // Igual que PAYMENT_STATUS en terminal: datos pagados en el modelo local
-                // para que el ticket comensal y printKioskChanges (cocina) tengan líneas/estado correctos.
-                if (result.order_sync && this.selfOrder.models?.connectNewData) {
-                    try {
-                        this.selfOrder.models.connectNewData(result.order_sync);
-                    } catch (e) {
-                    }
-                }
-                // La API de pos_self_order.notification.add espera (messageString, {type}).
-                // Si le pasamos un objeto como primer parámetro, en algún template se renderiza
-                // con t-out y Owl intenta montar un "block" que en realidad es un objeto plano.
-                // Usamos la firma correcta para evitar el crash.
-                const msg = result.message || "Orden enviada a cocina";
-                this.selfOrder.notification?.add?.(msg, { type: "success" });
-                const accessToken =
-                    result.order_sync?.["pos.order"]?.[0]?.access_token ||
-                    this.selfOrder.currentOrder?.access_token;
-                const navigate = () => {
-                    if (accessToken) {
-                        // "order" alinea con pos_self_order tras pago terminal (no "pay").
-                        this.selfOrder.confirmationPage("order", "kiosk", accessToken);
-                    } else {
-                        this.router.back();
-                    }
-                };
-                requestAnimationFrame(() => {
-                    requestAnimationFrame(navigate);
-                });
-            } else {
-                this._clearCashdropTimeout();
-                removeOverlay?.();
-                this.selfOrder.handleErrorNotification(result?.error || "Error al confirmar pago");
-            }
-        } catch (error) {
-            this._clearCashdropTimeout();
-            removeOverlay?.();
-            this.selfOrder.handleErrorNotification(error?.message || error || "Error al confirmar pago");
-        }
-    },
-
-    _applyPaymentSuccess(response) {
-        // Cargar resultado de orden si el servicio lo permite (pos_self_order puede exponer loadOrderResult)
-        if (typeof this.selfOrder.loadOrderResult === "function") {
-            this.selfOrder.loadOrderResult(response);
-        } else if (response.order) {
-            const orderList = Array.isArray(response.order) ? response.order : [response.order];
-            if (orderList.length && orderList[0]) {
-                this.selfOrder.currentOrder.serverId = orderList[0].id;
-            }
-        }
-        this.router.back();
     },
 });
