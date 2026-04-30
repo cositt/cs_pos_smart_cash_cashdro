@@ -535,9 +535,75 @@ class CashdropPaymentController(http.Controller):
             return {'success': False, 'error': str(e)}
 
     # ========================
-    # CAJA REGISTRADORA (POS): REEMBOLSO SIMPLE (PAGO AL CLIENTE)
+    # NUEVO ENDPOINT: GUARDAR RESULTADO DE PAGO POS (FLUJO JAVASCRIPT)
     # ========================
 
+    @http.route('/cashdro/payment/pos/save-result', type='jsonrpc', auth='user', csrf=False)
+    def pos_payment_save_result(self, payment_method_id=None, amount=None,
+                                 cashdro_operation_id=None, pos_session_id=None, **kwargs):
+        """
+        Guardar resultado de pago CashDro en Odoo (llamado desde JavaScript después de pago exitoso).
+        
+        Este endpoint es llamado por el nuevo flujo JavaScript del POS que procesa el pago
+        directamente desde el navegador (fetch al CashDro), no desde el servidor Python.
+        
+        Request:
+        {
+            "payment_method_id": 5,
+            "amount": 25.50,
+            "cashdro_operation_id": "15984",
+            "pos_session_id": 123
+        }
+        
+        Response:
+        {
+            "success": true,
+            "record_id": 42
+        }
+        """
+        try:
+            _logger.info(
+                "POS CashDro save-result: payment_method_id=%s amount=%s operation_id=%s session=%s",
+                payment_method_id, amount, cashdro_operation_id, pos_session_id
+            )
+            
+            # Validar parámetros
+            if not payment_method_id:
+                return {'success': False, 'error': 'payment_method_id requerido'}
+            
+            # Buscar método de pago
+            payment_method = http.request.env['pos.payment.method'].sudo().browse(int(payment_method_id))
+            if not payment_method.exists():
+                return {'success': False, 'error': 'Método de pago no encontrado'}
+            
+            # Crear registro en cashdro.operation.log
+            log_vals = {
+                'payment_method_id': int(payment_method_id),
+                'operation_type': 'venta',
+                'amount': amount or 0.0,
+                'state': 'completed',
+                'cashdro_operation_id': cashdro_operation_id or '',
+                'concept': 'Pago en caja registradora',
+            }
+            
+            record = http.request.env['cashdro.operation.log'].sudo().create([log_vals])
+            record_id = record[0] if isinstance(record, list) else record
+            
+            _logger.info("POS CashDro save-result: registro creado con ID=%s", record_id)
+            
+            return {
+                'success': True,
+                'record_id': record_id,
+            }
+            
+        except Exception as e:
+            _logger.exception("Error en pos_payment_save_result")
+            return {'success': False, 'error': str(e)}
+
+    # ========================
+    # CAJA REGISTRADORA (POS): REEMBOLSO SIMPLE (PAGO AL CLIENTE)
+    # ========================
+    
     @http.route('/cashdro/payment/pos_refund/start', type='jsonrpc', auth='user')
     def pos_refund_start(self, payment_method_id=None, amount=None, **kwargs):
         """

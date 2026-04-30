@@ -1,5 +1,12 @@
 /**
- * Interface de pago CashDro para la caja registradora (POS).
+ * Interface de pago CashDro para la caja registradora (POS) - VERSIÓN MIGRADA A JAVASCRIPT.
+ * 
+ * Cambios principales:
+ * - Antes: Hacía RPC al servidor Python, que hacía requests al CashDro
+ * - Ahora: JavaScript hace fetch() directo al CashDro desde el navegador
+ * - Polling desde cliente (no RPC al servidor)
+ * - Solo RPC al servidor para persistir resultados
+ * 
  * Al pulsar el método de pago "Efectivisimo" (use_payment_terminal === 'cashdro'),
  * se añade la línea y se dispara sendPaymentRequest: resumen máquina, start, polling, confirm.
  */
@@ -15,17 +22,196 @@ const POLLING_TIMEOUT_MS = 60000;
 export class PaymentCashdro extends PaymentInterface {
     setup() {
         super.setup(...arguments);
+        this.cashdroConfig = null; // Cache de configuración
     }
 
     get fastPayments() {
         return true;
     }
 
+    /**
+     * Obtiene configuración CashDro del servidor si no está cargada.
+     */
+    async _getCashdroConfig() {
+        if (this.cashdroConfig) {
+            return this.cashdroConfig;
+        }
+
+        // Intentar obtener del payment_method
+        const pm = this.payment_method_id;
+        if (pm.cashdro_host && pm.cashdro_user && pm.cashdro_password) {
+            this.cashdroConfig = {
+                host: pm.cashdro_host,
+                user: pm.cashdro_user,
+                password: pm.cashdro_password,
+                paymentMethodId: pm.id,
+            };
+            return this.cashdroConfig;
+        }
+
+        // Si no está cargada, obtener del servidor
+        console.log("[CashDro POS] Obteniendo configuración del servidor...");
+        const result = await rpc("/cashdro/config/get", {
+            payment_method_id: this.payment_method_id.id,
+        });
+
+        if (!result.success) {
+            throw new Error(result.error || _t("No se pudo obtener configuración CashDro"));
+        }
+
+        this.cashdroConfig = {
+            host: result.cashdro_host,
+            user: result.cashdro_user,
+            password: result.cashdro_password,
+            paymentMethodId: this.payment_method_id.id,
+        };
+
+        return this.cashdroConfig;
+    }
+
+    /**
+     * Construye URL del gateway.
+     */
+    _buildGatewayUrl(host) {
+        if (host.startsWith('http://') || host.startsWith('https://')) {
+            return host;
+        }
+        return `https://${host}`;
+    }
+
+    /**
+     * Petición GET al CashDro.
+     */
+    async _cashdroRequest(params) {
+        const config = await this._getCashdroConfig();
+        const gatewayUrl = this._buildGatewayUrl(config.host);
+        const endpoint = `${gatewayUrl}/Cashdro3WS/index3.php`;
+
+        const queryString = new URLSearchParams(params).toString();
+        const url = `${endpoint}?${queryString}`;
+
+        const response = await fetch(url, {
+            method: "GET",
+            headers: { "Content-Type": "application/json" },
+            mode: "cors",
+            credentials: "omit",
+        });
+
+        if (!response.ok) {
+            throw new Error(`HTTP ${response.status}: ${response.statusText}`);
+        }
+
+        return await response.json();
+    }
+
+    /**
+     * Inicia pago en CashDro directamente.
+     */
+    async _startCashdroPayment(amount) {
+        const config = await this._getCashdroConfig();
+
+        const params = {
+            operation: 'startOperation',
+            name: config.user,
+            password: config.password,
+            operationType: '1', // 1 = venta
+            amount: String(Math.round(amount * 100)), // en céntimos
+            posId: 'POS-' + (this.pos.session?.id || '1'),
+            posUser: this.pos.user?.name || 'POS',
+            concept: 'Venta POS',
+        };
+
+        const data = await this._cashdroRequest(params);
+
+        if (data.code !== 0) {
+            throw new Error(data.response?.errorMessage || _t("Error iniciando pago en CashDro"));
+        }
+
+        return data.response?.operation?.operationid;
+    }
+
+    /**
+     * Consulta estado de operación en CashDro.
+     */
+    async _askOperation(operationId) {
+        const config = await this._getCashdroConfig();
+
+        const params = {
+            operation: 'askOperation',
+            name: config.user,
+            password: config.password,
+            operationId: operationId,
+        };
+
+        return await this._cashdroRequest(params);
+    }
+
+    /**
+     * Envía acknowledge al CashDro.
+     */
+    async _acknowledgeOperation(operationId) {
+        const config = await this._getCashdroConfig();
+
+        const params = {
+            operation: 'acknowledgeOperationId',
+            name: config.user,
+            password: config.password,
+            operationId: operationId,
+        };
+
+        return await this._cashdroRequest(params);
+    }
+
+    /**
+     * Obtiene resumen de la máquina directamente (sin pasar por servidor).
+     */
+    async _getMachineSummary() {
+        try {
+            const config = await this._getCashdroConfig();
+            const gatewayUrl = this._buildGatewayUrl(config.host);
+
+            // Probar conexión con getMainCurrency
+            const params = {
+                operation: 'getMainCurrency',
+                name: config.user,
+                password: config.password,
+            };
+
+            const queryString = new URLSearchParams(params).toString();
+            const url = `${gatewayUrl}/Cashdro3WS/index3.php?${queryString}`;
+
+            const response = await fetch(url, {
+                method: "GET",
+                headers: { "Content-Type": "application/json" },
+                mode: "cors",
+                credentials: "omit",
+                signal: AbortSignal.timeout(5000),
+            });
+
+            const connected = response.ok;
+            let errorMessage = "";
+
+            if (!connected) {
+                errorMessage = _t("No se pudo conectar al CashDro");
+            }
+
+            return {
+                success: true,
+                connection_status: connected ? "connected" : "error",
+                error_message: errorMessage,
+            };
+        } catch (e) {
+            return {
+                success: true,
+                connection_status: "error",
+                error_message: e.message || _t("Error de conexión"),
+            };
+        }
+    }
+
     async _askMachineSummary() {
         try {
-            const summary = await rpc("/cashdro/payment/pos/summary", {
-                payment_method_id: this.payment_method_id.id,
-            });
+            const summary = await this._getMachineSummary();
             if (!summary || !summary.success) {
                 this._showError(summary?.error || _t("Error obteniendo información de CashDro."));
                 return false;
@@ -92,15 +278,15 @@ export class PaymentCashdro extends PaymentInterface {
 
         try {
             line.setPaymentStatus("waiting");
-            const posOrderId = order.id || order.server_id || null;
 
-            // Si la línea es negativa (reembolso), usar flujo de PAGO (type=3) del backend.
+            // Si la línea es negativa (reembolso)
             if (isRefund) {
+                // Para reembolso, usamos el flujo del backend (dispensa)
                 const result = await rpc("/cashdro/payment/pos_refund/start", {
                     payment_method_id: this.payment_method_id.id,
                     amount,
                     pos_session_id: this.pos.session?.id || null,
-                    pos_order_id: posOrderId,
+                    pos_order_id: order.id || order.server_id || null,
                 });
 
                 if (!result || !result.success) {
@@ -109,108 +295,118 @@ export class PaymentCashdro extends PaymentInterface {
                     return false;
                 }
 
-                // Flujo simple: la máquina dispensa y damos la línea por completada.
                 line.setPaymentStatus("done");
                 return true;
             }
 
-            // Cobro normal (importe positivo): flujo estándar con transacción y polling.
-            const result = await rpc("/cashdro/payment/pos/start", {
-                payment_method_id: this.payment_method_id.id,
-                amount,
-                pos_session_id: this.pos.session?.id || null,
-                pos_order_id: posOrderId,
-            });
+            // Cobro normal: flujo JavaScript directo al CashDro
+            console.log("[CashDro POS] Iniciando pago directo desde JavaScript...");
 
-            if (!result || !result.success) {
-                this._showError(result?.error || _t("Error al iniciar pago en CashDro."));
+            // 1. Iniciar operación en CashDro
+            const operationId = await this._startCashdroPayment(amount);
+            console.log("[CashDro POS] OperationId obtenido:", operationId);
+
+            if (!operationId) {
+                this._showError(_t("No se pudo iniciar el pago en CashDro."));
                 line.setPaymentStatus("retry");
                 return false;
             }
 
-            const transactionId = result.transaction_id;
+            // 2. Guardar operationId y hacer polling
             line.uiState = line.uiState || {};
-            line.uiState.cashdroTransactionId = transactionId;
+            line.uiState.cashdroOperationId = operationId;
 
-            return await this._waitForPayment(line, transactionId);
+            // 3. Enviar acknowledge
+            await this._acknowledgeOperation(operationId);
+            console.log("[CashDro POS] Acknowledge enviado");
+
+            // 4. Esperar pago con polling
+            return await this._waitForPayment(line, operationId, amount);
+
         } catch (e) {
+            console.error("[CashDro POS] Error:", e);
             this._showError(
-                _t(
-                    "No se ha podido comunicar con el servidor o con la máquina CashDro. Revisa la conexión."
-                )
+                e.message || _t("No se ha podido comunicar con la máquina CashDro. Revisa la conexión.")
             );
             line.setPaymentStatus("retry");
             return false;
         }
     }
 
-    async _waitForPayment(line, transactionId) {
+    async _waitForPayment(line, operationId, amount) {
         const startedAt = Date.now();
+        console.log("[CashDro POS] Iniciando polling para operación:", operationId);
 
         return new Promise((resolve) => {
             const tick = async () => {
                 const stillWaiting =
                     !line.isDone() &&
                     ["waiting", "waitingCard", "timeout"].includes(line.getPaymentStatus?.() || line.payment_status) &&
-                    (line.uiState?.cashdroTransactionId === transactionId);
+                    (line.uiState?.cashdroOperationId === operationId);
 
                 if (!stillWaiting) {
+                    console.log("[CashDro POS] Polling detenido, estado:", line.getPaymentStatus?.());
                     resolve((line.getPaymentStatus?.() || line.payment_status) === "done");
                     return;
                 }
 
                 if (Date.now() - startedAt > POLLING_TIMEOUT_MS) {
+                    console.log("[CashDro POS] Timeout de polling");
                     line.setPaymentStatus("timeout");
                     this._showError(
-                        _t(
-                            "Tiempo de espera agotado esperando confirmación de pago en CashDro. Revisa el estado en la máquina."
-                        )
+                        _t("Tiempo de espera agotado esperando confirmación de pago en CashDro.")
                     );
                     resolve(false);
                     return;
                 }
 
                 try {
-                    const status = await rpc("/cashdro/payment/pos/status", {
-                        transaction_id: transactionId,
-                    });
-                    if (!status || !status.success) {
+                    const status = await this._askOperation(operationId);
+                    console.log("[CashDro POS] Estado de operación:", status);
+
+                    if (status.code !== 0) {
+                        console.warn("[CashDro POS] Error en askOperation:", status);
                         setTimeout(tick, POLLING_INTERVAL_MS);
                         return;
                     }
 
-                    const txStatus = status.status;
-                    if (txStatus === "confirmed") {
-                        const confirm = await rpc("/cashdro/payment/pos/confirm", {
-                            transaction_id: transactionId,
+                    const opState = status.response?.operation?.state;
+                    console.log("[CashDro POS] Estado del CashDro:", opState);
+
+                    // Estados: Q=queued, E=executing, F=finished
+                    if (opState === "F") {
+                        // Pago completado
+                        console.log("[CashDro POS] Pago completado, guardando en Odoo...");
+
+                        // Guardar resultado en Odoo
+                        const config = await this._getCashdroConfig();
+                        const saveResult = await rpc("/cashdro/payment/pos/save-result", {
+                            payment_method_id: config.paymentMethodId,
+                            amount: amount,
+                            cashdro_operation_id: operationId,
+                            pos_session_id: this.pos.session?.id || null,
                         });
-                        if (!confirm || !confirm.success) {
-                            this._showError(
-                                confirm?.error || _t("Error confirmando el pago en CashDro desde el servidor.")
-                            );
-                            line.setPaymentStatus("retry");
-                            resolve(false);
-                            return;
+
+                        if (!saveResult || !saveResult.success) {
+                            console.error("[CashDro POS] Error guardando en Odoo:", saveResult);
+                            // No bloqueamos, continuamos igual
+                        } else {
+                            console.log("[CashDro POS] Guardado en Odoo:", saveResult);
                         }
-                        let amountReceived = confirm.amount_received || 0;
-                        // Fallback: si el backend no puede determinar el importe, asumimos el de la línea
-                        if (!amountReceived || amountReceived <= 0) {
-                            amountReceived = Math.abs(line.getAmount ? line.getAmount() : line.amount);
-                        }
+
                         line.setPaymentStatus("done");
-                        line.transaction_id = transactionId;
+                        line.transaction_id = operationId;
                         resolve(true);
-                    } else if (["cancelled", "error", "timeout"].includes(txStatus)) {
-                        this._showError(
-                            status.message ||
-                                _t("El pago ha sido cancelado o ha fallado en la máquina CashDro.")
-                        );
+                    } else if (["cancelled", "error"].includes(opState)) {
+                        this._showError(_t("El pago ha sido cancelado o ha fallado en la máquina CashDro."));
                         line.setPaymentStatus("retry");
                         resolve(false);
                     } else {
+                        // Seguir esperando (Q, E, etc.)
                         setTimeout(tick, POLLING_INTERVAL_MS);
                     }
                 } catch (e) {
+                    console.error("[CashDro POS] Error en polling:", e);
                     setTimeout(tick, POLLING_INTERVAL_MS);
                 }
             };
@@ -220,14 +416,47 @@ export class PaymentCashdro extends PaymentInterface {
 
     async sendPaymentCancel(order, uuid) {
         const line = order.getPaymentlineByUuid(uuid);
-        const transactionId = line?.uiState?.cashdroTransactionId;
-        if (!transactionId) return true;
+        const operationId = line?.uiState?.cashdroOperationId;
+
+        if (!operationId) {
+            // Intentar con transactionId antiguo por compatibilidad
+            const transactionId = line?.uiState?.cashdroTransactionId;
+            if (!transactionId) return true;
+
+            try {
+                await rpc("/cashdro/payment/cancel", { transaction_id: transactionId });
+                return true;
+            } catch (e) {
+                return false;
+            }
+        }
+
+        // Cancelar operación en CashDro directamente
         try {
-            await rpc("/cashdro/payment/cancel", {
-                transaction_id: transactionId,
+            const config = await this._getCashdroConfig();
+            const gatewayUrl = this._buildGatewayUrl(config.host);
+
+            const params = {
+                operation: 'finishOperation',
+                name: config.user,
+                password: config.password,
+                operationId: operationId,
+                type: '2', // 2 = cancelar
+            };
+
+            const queryString = new URLSearchParams(params).toString();
+            const url = `${gatewayUrl}/Cashdro3WS/index3.php?${queryString}`;
+
+            await fetch(url, {
+                method: "GET",
+                headers: { "Content-Type": "application/json" },
+                mode: "cors",
+                credentials: "omit",
             });
+
             return true;
         } catch (e) {
+            console.error("[CashDro POS] Error cancelando:", e);
             return false;
         }
     }
