@@ -220,6 +220,22 @@ patch(FormController.prototype, {
             if (response.code === 1) {
                 this.notification.add(_t("Fianza consultada correctamente"), { type: "success" });
                 
+                // Procesar datos y actualizar campos del formulario
+                const levels = this._parsePiecesResponse(response);
+                const fianzaHtml = this._buildEstadoFianzaHtml(levels);
+                const nivelesHtml = this._buildConsultaNivelesHtml(levels);
+                
+                // Actualizar campos del formulario directamente
+                await this.model.root.update({
+                    state_fianza: fianzaHtml,
+                    state_display: nivelesHtml,
+                    state_raw: JSON.stringify({
+                        getPiecesCurrency_fianza: response,
+                        levels_fianza: levels,
+                        timestamp: new Date().toISOString(),
+                    }, null, 2),
+                });
+                
                 // Guardar resultado en Odoo
                 const paymentMethodId = formData.payment_method_id?.[0];
                 if (paymentMethodId) {
@@ -232,9 +248,6 @@ patch(FormController.prototype, {
                         concept: 'Consulta de fianza',
                     });
                 }
-                
-                // Recargar el formulario para que muestre los datos actualizados
-                await this.model.load();
             } else {
                 throw new Error(_t("Error consultando fianza (code=%s)", response.code));
             }
@@ -260,6 +273,20 @@ patch(FormController.prototype, {
             if (response.code === 1) {
                 this.notification.add(_t("Niveles consultados correctamente"), { type: "success" });
                 
+                // Procesar datos y actualizar campos del formulario
+                const levels = this._parsePiecesResponse(response);
+                const nivelesHtml = this._buildConsultaNivelesHtml(levels);
+                
+                // Actualizar campos del formulario directamente
+                await this.model.root.update({
+                    state_display: nivelesHtml,
+                    state_raw: JSON.stringify({
+                        getPiecesCurrency_niveles: response,
+                        levels: levels,
+                        timestamp: new Date().toISOString(),
+                    }, null, 2),
+                });
+                
                 // Guardar resultado en Odoo
                 const paymentMethodId = formData.payment_method_id?.[0];
                 if (paymentMethodId) {
@@ -272,9 +299,6 @@ patch(FormController.prototype, {
                         concept: 'Consulta de niveles',
                     });
                 }
-                
-                // Recargar el formulario
-                await this.model.load();
             } else {
                 throw new Error(_t("Error consultando niveles (code=%s)", response.code));
             }
@@ -403,6 +427,227 @@ patch(FormController.prototype, {
         };
         
         return configMap[this.model?.root?.resModel] || null;
+    },
+
+    /**
+     * Parsea la respuesta de getPiecesCurrency y extrae niveles.
+     */
+    _parsePiecesResponse(response) {
+        const monedaDenom = [2.0, 1.0, 0.5, 0.2, 0.1, 0.05];
+        const billeteDenom = [100, 50, 20, 10, 5];
+        
+        const levels = {
+            moneda: monedaDenom.map(v => [v, 0, 0.0, 0, 0.0]),
+            billete: billeteDenom.map(v => [v, 0, 0.0, 0, 0.0]),
+        };
+        
+        if (!response || response.code !== 1) {
+            return levels;
+        }
+        
+        let data = response.data || response.response?.data;
+        if (!data && response.response?.operation?.pieces) {
+            data = response.response.operation.pieces;
+        }
+        
+        if (!data) return levels;
+        
+        if (typeof data === 'string') {
+            try {
+                data = JSON.parse(data);
+            } catch (e) {
+                return levels;
+            }
+        }
+        
+        if (!Array.isArray(data)) {
+            data = data ? [data] : [];
+        }
+        
+        data.forEach(p => {
+            if (!p || typeof p !== 'object') return;
+            
+            const valRaw = p.value || p.Value || 0;
+            const typ = String(p.type || p.Type || '');
+            const recLimit = parseFloat(p.RecyclerLimit || p.recyclerLimit || 0);
+            const rec = parseFloat(p.LevelRecycler || p.levelRecycler || 
+                                 p.startlevelrecycler || p.unitsinrecycler || 0);
+            const cas = parseFloat(p.LevelCasete || p.levelCasete || 
+                                 p.startlevelcassette || p.unitsincassette || 0);
+            const deposit = parseFloat(p.DepositLevel || p.depositLevel || 0);
+            
+            if (!recLimit) return;
+            
+            try {
+                const valInt = parseInt(valRaw);
+                
+                if (typ === '1' || typ === '3') {
+                    // Monedas: valor en céntimos → euros
+                    const valEur = Math.round(valInt) / 100.0;
+                    const idx = monedaDenom.findIndex(d => Math.abs(d - valEur) < 0.01);
+                    if (idx >= 0) {
+                        const totalRec = rec * valEur;
+                        const totalCas = cas * valEur;
+                        levels.moneda[idx] = [valEur, rec, totalRec, cas, totalCas];
+                    }
+                } else if (typ === '2') {
+                    // Billetes
+                    let valEur = valInt / 100.0;
+                    if (valInt >= 100) valEur = valInt / 100.0;
+                    else if ([5, 10, 20, 50, 100, 200].includes(valInt)) valEur = valInt;
+                    
+                    const idx = billeteDenom.findIndex(d => Math.abs(d - valEur) < 0.01);
+                    if (idx >= 0) {
+                        const totalRec = rec * valEur;
+                        const totalCas = cas * valEur;
+                        levels.billete[idx] = [valEur, rec, totalRec, cas, totalCas];
+                    }
+                }
+            } catch (e) {
+                console.warn("Error procesando pieza:", p, e);
+            }
+        });
+        
+        return levels;
+    },
+
+    /**
+     * Genera HTML de estado de fianza (similar al Python).
+     */
+    _buildEstadoFianzaHtml(levels) {
+        const orderDenom = [200, 100, 50, 20, 10, 5, 2.0, 1.0, 0.5, 0.2, 0.1, 0.05];
+        const billeteDenom = [100, 50, 20, 10, 5];
+        const monedaDenom = [2.0, 1.0, 0.5, 0.2, 0.1, 0.05];
+        
+        // Obtener niveles de fianza desde datos (usar 0 como default)
+        const fianzaLevels = {};
+        orderDenom.forEach(v => fianzaLevels[v] = 0);
+        
+        let rows = [];
+        let totalFianza = 0, totalRec = 0, totalFaltante = 0;
+        
+        orderDenom.forEach(v => {
+            const nf = fianzaLevels[v] || 0;
+            
+            // Buscar en billetes o monedas
+            let recData = levels.billete.find(x => Math.abs(x[0] - v) < 0.01);
+            if (!recData) {
+                recData = levels.moneda.find(x => Math.abs(x[0] - v) < 0.01);
+            }
+            
+            const nr = recData ? recData[1] : 0;
+            const tr = nr * v;
+            const faltante = Math.max(0, nf - nr);
+            const tf = nf * v;
+            const tfalt = faltante * v;
+            
+            totalFianza += tf;
+            totalRec += tr;
+            totalFaltante += tfalt;
+            
+            const css = nr === 0 ? 'background-color: #f8d7da;' : '';
+            const label = v >= 1 ? `${parseInt(v)} €` : `${v.toFixed(2)} €`;
+            
+            rows.push(`<tr style="${css}">
+                <td>${label}</td>
+                <td>${nf}</td>
+                <td>${tf.toFixed(2)} €</td>
+                <td>${nr}</td>
+                <td>${tr.toFixed(2)} €</td>
+                <td>${faltante}</td>
+                <td>${tfalt.toFixed(2)} €</td>
+            </tr>`);
+        });
+        
+        return `<p style="margin-bottom:0.5rem;">Estado de fianza (getPiecesCurrency).</p>
+        <table class="table table-sm table-bordered" style="width:100%; table-layout:fixed;">
+            <thead><tr>
+                <th>Denominación</th><th>Nivel fianza</th><th>Total Fianza</th>
+                <th>Niv. reciclador</th><th>Total reciclador</th>
+                <th>Niv. faltante</th><th>Total faltante</th>
+            </tr></thead>
+            <tbody>${rows.join('')}</tbody>
+            <tfoot><tr style="font-weight:bold;">
+                <td>Total</td><td></td><td>${totalFianza.toFixed(2)} €</td>
+                <td></td><td>${totalRec.toFixed(2)} €</td><td></td><td>${totalFaltante.toFixed(2)} €</td>
+            </tr></tfoot>
+        </table>`;
+    },
+
+    /**
+     * Genera HTML de consulta de niveles (similar al Python).
+     */
+    _buildConsultaNivelesHtml(levels) {
+        const rowMoneda = (val, rec, totalRec, cas, totalCas) => {
+            const css = (rec === 0 && cas === 0) ? 'background-color: #f8d7da;' : '';
+            return `<tr style="${css}">
+                <td>${val.toFixed(2)} €</td>
+                <td>${rec}</td><td>${totalRec.toFixed(2)} €</td>
+                <td>${cas}</td><td>${totalCas.toFixed(2)} €</td>
+            </tr>`;
+        };
+        
+        const rowBillete = (val, rec, totalRec, cas, totalCas) => {
+            const css = (rec === 0 && cas === 0) ? 'background-color: #f8d7da;' : '';
+            return `<tr style="${css}">
+                <td>${parseInt(val)} €</td>
+                <td>${rec}</td><td>${totalRec.toFixed(0)} €</td>
+                <td>${cas}</td><td>${totalCas.toFixed(0)} €</td>
+            </tr>`;
+        };
+        
+        const monedaRows = levels.moneda.map(m => rowMoneda(m[0], m[1], m[2], m[3], m[4])).join('');
+        const billeteRows = levels.billete.map(b => rowBillete(b[0], b[1], b[2], b[3], b[4])).join('');
+        
+        const sumMonRec = levels.moneda.reduce((s, m) => s + m[1], 0);
+        const sumMonCas = levels.moneda.reduce((s, m) => s + m[3], 0);
+        const totMonRec = levels.moneda.reduce((s, m) => s + m[2], 0);
+        const totMonCas = levels.moneda.reduce((s, m) => s + m[4], 0);
+        const totMon = totMonRec + totMonCas;
+        
+        const sumBillRec = levels.billete.reduce((s, b) => s + b[1], 0);
+        const sumBillCas = levels.billete.reduce((s, b) => s + b[3], 0);
+        const totBillRec = levels.billete.reduce((s, b) => s + b[2], 0);
+        const totBillCas = levels.billete.reduce((s, b) => s + b[4], 0);
+        const totBill = totBillRec + totBillCas;
+        
+        return `<div style="width:100%; max-width:100%; box-sizing:border-box;">
+            <table class="table table-sm table-bordered" style="width:100%; table-layout:fixed; margin-bottom:1.5rem;">
+                <caption style="text-align:left; font-weight:bold;">Moneda</caption>
+                <thead><tr>
+                    <th style="width:12%">Valor</th>
+                    <th style="width:22%">Niv. reciclador</th>
+                    <th style="width:22%">Total reciclador</th>
+                    <th style="width:22%">Niv. casete</th>
+                    <th style="width:22%">Total casete</th>
+                </tr></thead>
+                <tbody>${monedaRows}</tbody>
+                <tfoot><tr style="font-weight:bold;">
+                    <td>Total</td><td>${sumMonRec}</td><td>${totMonRec.toFixed(2)} €</td>
+                    <td>${sumMonCas}</td><td>${totMonCas.toFixed(2)} €</td>
+                </tr></tfoot>
+            </table>
+            <table class="table table-sm table-bordered" style="width:100%; table-layout:fixed; margin-bottom:1.5rem;">
+                <caption style="text-align:left; font-weight:bold;">Billete</caption>
+                <thead><tr>
+                    <th style="width:12%">Valor</th>
+                    <th style="width:22%">Niv. reciclador</th>
+                    <th style="width:22%">Total reciclador</th>
+                    <th style="width:22%">Niv. casete</th>
+                    <th style="width:22%">Total casete</th>
+                </tr></thead>
+                <tbody>${billeteRows}</tbody>
+                <tfoot><tr style="font-weight:bold;">
+                    <td>Total</td><td>${sumBillRec}</td><td>${totBillRec.toFixed(0)} €</td>
+                    <td>${sumBillCas}</td><td>${totBillCas.toFixed(0)} €</td>
+                </tr></tfoot>
+            </table>
+            <p style="margin:0.5rem 0;">
+                <strong>Total monedas:</strong> ${totMon.toFixed(2)} € &nbsp;|&nbsp;
+                <strong>Total billetes:</strong> ${totBill.toFixed(0)} € &nbsp;|&nbsp;
+                <strong>Total:</strong> ${(totMon + totBill).toFixed(2)} €
+            </p>
+        </div>`;
     },
 
     /**
