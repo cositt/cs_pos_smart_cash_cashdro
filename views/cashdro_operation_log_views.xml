@@ -1,11 +1,11 @@
 <?xml version="1.0" encoding="UTF-8"?>
 <odoo>
-    <!-- Vista de lista (tree) -->
-    <record id="view_cashdro_operation_log_tree" model="ir.ui.view">
-        <field name="name">cashdro.operation.log.tree</field>
+    <!-- Vista de lista (list) - Odoo 19 usa 'list' en lugar de 'tree' -->
+    <record id="view_cashdro_operation_log_list" model="ir.ui.view">
+        <field name="name">cashdro.operation.log.list</field>
         <field name="model">cashdro.operation.log</field>
         <field name="arch" type="xml">
-            <tree string="Operaciones CashDro" decoration-info="state == 'pending'" decoration-success="state == 'completed'" decoration-danger="state == 'error'">
+            <list string="Operaciones CashDro" decoration-info="state == 'pending'" decoration-success="state == 'completed'" decoration-danger="state == 'error'">
                 <field name="create_date" string="Fecha/Hora"/>
                 <field name="payment_method_id"/>
                 <field name="operation_type"/>
@@ -14,7 +14,7 @@
                 <field name="cashdro_operation_id"/>
                 <field name="user_id"/>
                 <field name="concept"/>
-            </tree>
+            </list>
         </field>
     </record>
 
@@ -81,7 +81,7 @@
     <record id="action_cashdro_operation_log" model="ir.actions.act_window">
         <field name="name">Historial de Operaciones CashDro</field>
         <field name="res_model">cashdro.operation.log</field>
-        <field name="view_mode">tree,form</field>
+        <field name="view_mode">list,form</field>
         <field name="search_view_id" ref="view_cashdro_operation_log_search"/>
         <field name="help" type="html">
             <p class="o_view_nocontent_smiling_face">
