@@ -738,12 +738,18 @@ patch(FormController.prototype, {
         // Obtener payment_method_id de múltiples fuentes
         let paymentMethodId = null;
         
-        // Fuente 1: formData.payment_method_id (formato [id, name])
+        // Fuente 1: formData.payment_method_id (puede ser [id, name], {id, name}, número, o Proxy)
         if (formData.payment_method_id) {
-            if (Array.isArray(formData.payment_method_id)) {
-                paymentMethodId = formData.payment_method_id[0];
-            } else if (typeof formData.payment_method_id === 'number') {
-                paymentMethodId = formData.payment_method_id;
+            const pm = formData.payment_method_id;
+            console.log("[CashDro DEBUG] payment_method_id type:", typeof pm, "value:", pm);
+            
+            if (Array.isArray(pm)) {
+                paymentMethodId = pm[0];
+            } else if (typeof pm === 'number') {
+                paymentMethodId = pm;
+            } else if (typeof pm === 'object') {
+                // Puede ser {id: X, name: '...'} o un Proxy
+                paymentMethodId = pm.id || pm[0];
             }
         }
         
@@ -757,6 +763,7 @@ patch(FormController.prototype, {
             const pm = this.model.root.data.payment_method_id;
             if (Array.isArray(pm)) paymentMethodId = pm[0];
             else if (typeof pm === 'number') paymentMethodId = pm;
+            else if (typeof pm === 'object') paymentMethodId = pm.id || pm[0];
         }
         
         console.log("[CashDro DEBUG] paymentMethodId obtenido:", paymentMethodId);
