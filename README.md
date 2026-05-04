@@ -371,6 +371,62 @@ point_of_sale
 sale
 ```
 
+## Nota sobre Certificado SSL del CashDro
+
+### Requisito por dispositivo
+
+El CashDro utiliza un **certificado SSL auto-firmado** (self-signed). Cada navegador en cada dispositivo debe aceptar manualmente este certificado antes de que las operaciones CashDro funcionen desde Odoo.
+
+Este paso es necesario **una sola vez por navegador y por dispositivo**.
+
+### Por qué es necesario
+
+- El servidor Odoo se ejecuta en un contenedor Docker en la nube (red 10.0.4.x) y **no puede conectar directamente** al CashDro (red local 10.0.1.140).
+- Toda la comunicación con el CashDro se realiza desde el **navegador del cliente** (cliente-side JavaScript OWL).
+- El navegador detecta que el certificado del CashDro no está firmado por una autoridad de confianza y **bloquea la conexión** antes de que JavaScript pueda actuar.
+
+### Pasos de configuración por dispositivo
+
+#### Safari (macOS)
+
+1. Abre Safari
+2. Visita: `https://10.0.1.140/Cashdro3WS/index.php`
+3. Haz clic en **"Mostrar detalles"**
+4. Haz clic en **"visitar este sitio web"**
+5. Introduce tu contraseña de administrador de macOS si se solicita
+
+#### Chrome / Edge (cualquier plataforma)
+
+1. Abre Chrome
+2. Visita: `https://10.0.1.140/Cashdro3WS/index.php`
+3. Haz clic en **"Avanzado"**
+4. Haz clic en **"Proceder a 10.0.1.140 (no seguro)"**
+
+#### iOS (iPhone / iPad)
+
+1. Abre Safari
+2. Visita: `https://10.0.1.140/Cashdro3WS/index.php`
+3. Toca **"Mostrar detalles"**
+4. Toca **"visitar este sitio web"**
+
+### Verificación
+
+Después de aceptar el certificado, prueba en Odoo:
+- Punto de venta > Configuración > Métodos de pago > CashDro
+- Pulsa **"Probar Conexión (Cliente)"**
+
+Debería mostrar: **"Conexión exitosa con CashDro"**.
+
+### Dispositivos típicos a configurar
+
+| Dispositivo | Navegador | Notas |
+|-------------|-----------|-------|
+| Mac del administrador | Safari / Chrome | Configurar ambos si se usan |
+| iPad del quiosco | Safari | Navegador predeterminado del quiosco |
+| iPhone del mesero | Safari | Si se usa para validación |
+
+---
+
 ## Licencia
 
 Este proyecto se distribuye bajo los términos de la **GNU Lesser General Public License v3.0 o posterior (LGPL-3.0-or-later)**, en línea con el estándar de módulos Odoo.
