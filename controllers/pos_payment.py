@@ -773,9 +773,6 @@ class CashdropPaymentController(http.Controller):
                 'pos_order_id': order.id,
             })
         order.action_pos_order_paid()
-        # Mismo efecto que tras pago Stripe/Adyen vía _send_payment_result (sin PAYMENT_STATUS):
-        # email de recibo si aplica, pantallas de preparación / hooks _send_order.
-        order._send_self_order_receipt()
         order._send_order()
         cfg = order.config_id
         order_sync = {
@@ -958,7 +955,6 @@ class CashdropPaymentController(http.Controller):
             order.action_pos_order_paid()
             
             # Enviar a cocina y recibo
-            order._send_self_order_receipt()
             order._send_order()
             
             order_sync = self._get_order_sync_data(order)
