@@ -1,3 +1,6 @@
+// VERSION: XMLHttpRequest (anti-service-worker) - 1777907544
+console.log("[CashDro POS] ✅ Cargado con XMLHttpRequest - Version 1777907544");
+
 /**
  * Interface de pago CashDro para la caja registradora (POS) - VERSIÓN MIGRADA A JAVASCRIPT.
  * 
@@ -82,7 +85,7 @@ export class PaymentCashdro extends PaymentInterface {
     }
 
     /**
-     * Petición GET al CashDro usando XMLHttpRequest para evitar service worker.
+     * Petición GET al CashDro. Desactiva temporalmente el service worker para esta petición.
      */
     async _cashdroRequest(params) {
         const config = await this._getCashdroConfig();
@@ -92,11 +95,31 @@ export class PaymentCashdro extends PaymentInterface {
         const queryString = new URLSearchParams(params).toString();
         const url = `${endpoint}?${queryString}`;
 
+        // Desactivar service worker temporalmente para peticiones CashDro
+        const originalController = navigator.serviceWorker.controller;
+        try {
+            // Esto NO desactiva el SW globalmente, solo evita que intercepte esta petición
+            Object.defineProperty(navigator.serviceWorker, 'controller', {
+                get: () => null,
+                configurable: true
+            });
+        } catch (e) {
+            console.warn("[CashDro POS] No se pudo desactivar SW temporalmente:", e);
+        }
+
         return new Promise((resolve, reject) => {
             const xhr = new XMLHttpRequest();
             xhr.timeout = 10000;
             
             xhr.onload = function() {
+                // Restaurar service worker
+                try {
+                    Object.defineProperty(navigator.serviceWorker, 'controller', {
+                        get: () => originalController,
+                        configurable: true
+                    });
+                } catch (e) {}
+                
                 if (xhr.status >= 200 && xhr.status < 300) {
                     try {
                         const data = JSON.parse(xhr.responseText);
@@ -110,10 +133,26 @@ export class PaymentCashdro extends PaymentInterface {
             };
 
             xhr.onerror = function() {
+                // Restaurar service worker
+                try {
+                    Object.defineProperty(navigator.serviceWorker, 'controller', {
+                        get: () => originalController,
+                        configurable: true
+                    });
+                } catch (e) {}
+                
                 reject(new Error(_t("No se puede conectar con CashDro en %s. Verifica red y certificado SSL.", config.host)));
             };
 
             xhr.ontimeout = function() {
+                // Restaurar service worker
+                try {
+                    Object.defineProperty(navigator.serviceWorker, 'controller', {
+                        get: () => originalController,
+                        configurable: true
+                    });
+                } catch (e) {}
+                
                 reject(new Error(_t("Timeout conectando a CashDro. Verifica que el navegador pueda alcanzar %s", config.host)));
             };
 
