@@ -21,7 +21,6 @@
         "sale",
         "point_of_sale",
         "pos_self_order",
-        "pos_self_order_iot",
     ],
     "assets": {
         # Backend: operaciones CashDro desde formularios/wizards (ejecutadas desde navegador del cliente)

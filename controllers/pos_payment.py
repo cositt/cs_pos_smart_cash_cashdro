@@ -792,39 +792,7 @@ class CashdropPaymentController(http.Controller):
             'success': True,
             'message': _('Pago confirmado, orden enviada a cocina'),
             'order_id': order.id,
-            'order_sync': order_sync,
         }
-
-    # ========================
-    # NUEVOS ENDPOINTS PARA FLUJO JAVASCRIPT DIRECTO (MIGRACIÓN)
-    # Estos endpoints son llamados desde el navegador (JavaScript) después de que
-    # el pago se procesa directamente en el CashDro desde el cliente.
-    # ========================
-
-    @http.route('/cashdro/payment/kiosk/save-result', auth='public', type='jsonrpc', csrf=False)
-    def kiosk_payment_save_result(self, order_id=None, payment_method_id=None, amount=None,
-                                   cashdro_operation_id=None, state=None, **kwargs):
-        """
-        Guardar resultado de pago CashDro en Odoo (llamado desde JavaScript después de pago exitoso).
-        
-        Este endpoint es llamado por el nuevo flujo JavaScript que procesa el pago directamente
-        desde el navegador (fetch al CashDro), no desde el servidor Python.
-        
-        Request:
-        {
-            "order_id": 123,
-            "payment_method_id": 5,
-            "amount": 25.50,
-            "cashdro_operation_id": "15984",
-            "state": "completed"
-        }
-        
-        Response:
-        {
-            "success": true,
-            "record_id": 42
-        }
-        """
         try:
             _logger.info("[KIOSK-PROD] save-result: order_id=%s pm_id=%s amount=%s", 
                        order_id, payment_method_id, amount)
@@ -1075,4 +1043,5 @@ class CashdropPaymentController(http.Controller):
         except Exception as e:
             _logger.exception("Error en get_cashdro_config")
             return {'success': False, 'error': str(e)}
+
 
